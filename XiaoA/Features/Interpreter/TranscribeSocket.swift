@@ -53,7 +53,6 @@ final class TranscribeSocket {
                     "audio": [
                         "input": [
                             "format": ["type": "audio/pcm", "rate": 24_000],
-                            "noise_reduction": ["type": "near_field"],
                             "transcription": ["model": model, "prompt": prompt],
                             // A sentence ends after 0.7 s of quiet; short "um"s and soft background
                             // sound don't count (the phone also holds back room noise, see InterpreterAudio).
