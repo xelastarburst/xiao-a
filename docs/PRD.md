@@ -94,6 +94,8 @@ Acceptance
 
 Candidate tech (final choice in build): on-device Apple Vision text recognition plus the Apple Translation framework (English → Simplified Chinese, offline language pack). Cloud models are too slow for per-frame overlay. They are used only in F1b.
 
+**As built (2026-10-14):** the overlay appears instantly from on-device recognition and Apple Translation. When the camera rests on something for ~0.7 s, Claude Haiku re-translates everything in view together so each line fits what the thing is (menu, label, sign). **放大** zooms 2× for small print. **定住画面** reads the full-resolution photo with Apple Vision's most careful mode (including fine print) and has Claude Sonnet translate it with the photo in view, paragraph by paragraph.
+
 #### F1b. Ask about what she's seeing
 **Story:** After freezing a frame or taking a photo, Mom asks a question in Chinese, such as "这个药一天吃几次?" ("How many times a day do I take this?") or "这个是什么意思?" ("What does this mean?"), and gets a clear Chinese text answer.
 
@@ -130,7 +132,9 @@ Acceptance
 - Correct direction is chosen at least 95% of the time in a quiet room.
 - It runs for 30 minutes without dropping.
 
-Candidate tech: **OpenAI gpt-realtime-translate**, released May 2026. It is a streaming speech-to-speech translation model whose output languages include both Chinese and English, priced at about $0.034 per audio minute. Two-way routing (one session per direction vs. switching by detected language) is a build-phase decision. Fallback if it falls short: gpt-realtime-2 with an interpreter prompt, or Apple's on-device translation as an offline backup.
+**As built (2026-10-14, turn by turn):** one OpenAI realtime transcription stream (gpt-4o-transcribe, falling back to gpt-4o-mini-transcribe) hears everyone and ends a sentence after 0.7 s of quiet. Chinese in the transcript means Mom spoke; anything else is the other person. Claude Sonnet translates each sentence with the last 8 lines as context. OpenAI gpt-4o-mini-tts says it, one turn at a time, with the phone's own voice as backup. The earlier simultaneous design (below) is parked in `Parked/simultaneous-interpreter/`.
+
+Original candidate tech: **OpenAI gpt-realtime-translate**, released May 2026. It is a streaming speech-to-speech translation model whose output languages include both Chinese and English, priced at about $0.034 per audio minute. Two-way routing (one session per direction vs. switching by detected language) is a build-phase decision. Fallback if it falls short: gpt-realtime-2 with an interpreter prompt, or Apple's on-device translation as an offline backup.
 
 ### F2 — Daily learning coach (P1)
 
@@ -354,6 +358,10 @@ Minimal surface, form TBD in the build (an "Alex mode" in the same app, or a sep
 | 2026-10-14 | Real-iPhone finding: Mom heard her own sentence repeated in Mandarin. The Chinese-output session "translates" her Chinese into Chinese, and a 2.5 s "play it anyway if no transcript yet" fallback let it through. Now **the interpreter never plays speech it can't place**: each line waits for its source transcript (or the other session's verdict on the same speech), anything still unplaced after 8 s is dropped, a pause of 1.2 s in the source speech starts a new line so a reply right after the phone talks isn't merged into the previous speaker's line, and an **echo guard** drops speech that matches what the phone itself just said. |
 | 2026-10-14 | Mock sessions on the iPhone: gpt-realtime-translate **often sends no source transcript for the other person's English** (the translation still arrives), while Mom's Chinese is transcribed within ~0.2 s. Replies were being dropped. Now a translation without a transcript is placed by timing: it is the other person's reply unless Chinese was heard around then or the phone was talking when it began (the mic is off while the phone talks). Replies can start ~1 s later than Mom's translations. Debug log in the Xcode console: one summary per sentence ("[XA] …"). |
 | 2026-10-14 | Interpreter redesign (Alex's request): **Mom starts and ends each conversation.** Start screen (language + big 开始对话 button) → conversation (one big 结束对话, no 紧急 beside it) → 说完了 screen with the transcript, 再开始 and 回首页. Replaces "starts listening as soon as the screen opens". |
+| 2026-10-14 | Voiceprint speaker detection (FluidAudio) and a voice clone of Mom are **parked** (`Parked/voiceprint-interpreter/`); focus is conversation quality first. |
+| 2026-10-14 | Look (F1a) upgrade: fine print and context. Live mode keeps instant on-device translation and adds **in-context translation by Claude Haiku** once the camera is steady; **放大** (2× zoom); **定住画面** = careful full-resolution OCR + **Claude Sonnet with the photo**. Replies use numbered plain lines instead of JSON, which broke on quotes. |
+| 2026-10-14 | Interpreter (F1c) **rebuilt turn by turn**, because simultaneous translation sometimes mistranslated and missed what either side said (gpt-realtime-translate often sent no transcript for the other person, so replies couldn't be placed). Now: one transcription stream for everyone → language decides who spoke → **Claude Sonnet translates the whole sentence with conversation context** → natural OpenAI voice, one turn at a time, mic muted while the phone talks. Trade-off: ~1.5–2.5 s per turn instead of near-simultaneous, in exchange for accuracy and never losing a line. Console log per line: `pause->text`, `text->translation`, `translation->voice`. |
+| 2026-10-14 | Code is in git (local repo, author Alex Qi). GitHub push to **xelastarburst/xiao-a** (private) once that repo exists and the Claude GitHub app can reach it. |
 
 ## 11. Open questions
 
