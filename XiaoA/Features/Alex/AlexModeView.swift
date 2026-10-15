@@ -10,6 +10,8 @@ struct AlexModeView: View {
     @State private var openAIKey = ""
     @State private var anthropicKey = ""
     @State private var keyStatus = ""
+    @State private var testingKeys = false
+    @State private var keyResults: [KeyCheck.Result] = []
     @State private var editingPlace: Place?
     @State private var showTranslationPrep = false
     @State private var frontItem: PhotosPickerItem?
@@ -104,6 +106,25 @@ struct AlexModeView: View {
                 .disabled(openAIKey.isEmpty && anthropicKey.isEmpty)
                 if !keyStatus.isEmpty {
                     Text(keyStatus).font(.caption).foregroundStyle(.green)
+                }
+                Button(testingKeys ? "Testing keys…" : "Test keys") {
+                    testingKeys = true
+                    Task {
+                        keyResults = await KeyCheck.run()
+                        testingKeys = false
+                    }
+                }
+                .disabled(testingKeys)
+                ForEach(keyResults) { result in
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(result.label)
+                            Text(result.detail).font(.caption).foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: result.ok ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                            .foregroundStyle(result.ok ? .green : .red)
+                    }
                 }
             } header: {
                 Text("API keys")

@@ -14,6 +14,9 @@ enum APIKeys {
         keychainValue(kind) ?? bundled[kind]
     }
 
+    /// The key built into this build (BundledKeys.json), if any.
+    static func builtIn(_ kind: Kind) -> String? { bundled[kind] }
+
     /// The key typed into Alex mode on this iPhone, if any.
     static func keychainValue(_ kind: Kind) -> String? {
         let query: [String: Any] = [
