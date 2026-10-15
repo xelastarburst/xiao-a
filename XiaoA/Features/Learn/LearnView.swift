@@ -16,7 +16,9 @@ private struct CoachScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TopBar(title: "学英语").padding(.bottom, 8)
+            TopBar(title: coach.sessionTitle ?? "学英语",
+                   onBack: backToScenes)
+                .padding(.bottom, 8)
             switch coach.stage {
             case .overview: overview
             case .finished: finished
@@ -36,6 +38,15 @@ private struct CoachScreen: View {
         }
     }
 
+    /// In a lesson, ← goes back to the 学英语 start screen instead of home.
+    private var backToScenes: (() -> Void)? {
+        guard coach.stage != .overview else { return nil }
+        return {
+            listener.cancel()
+            coach.showOverview()
+        }
+    }
+
     // MARK: Overview
 
     private var overview: some View {
@@ -43,7 +54,7 @@ private struct CoachScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if learning.doneToday {
-                        MascotSays(text: "今天的课已经学完啦！", detail: "想多练也可以，再来一次吧", mascotSize: 76)
+                        MascotSays(text: "今天的课已经学完啦！", detail: "还想学？点下面的场景，或者再学几句新的", mascotSize: 76)
                     } else {
                         MascotSays(text: "今天学 \(coach.newCount) 句新话", detail: overviewDetail, mascotSize: 76)
                     }
@@ -53,34 +64,43 @@ private struct CoachScreen: View {
                             .padding(14).frame(maxWidth: .infinity, alignment: .leading)
                             .background(RoundedRectangle(cornerRadius: 18).fill(Palette.butter))
                     }
-                    ForEach(coach.items) { item in
-                        HStack(spacing: 12) {
-                            Text(item.isReview ? "复习" : "新")
-                                .font(.xa(16, .heavy)).foregroundStyle(item.isReview ? Palette.tealInk : Palette.persimmon)
-                                .frame(width: 48, height: 32)
-                                .background(Capsule().fill(item.isReview ? Palette.mint : Palette.peach))
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(item.phrase.zh).font(.xa(21, .heavy))
-                                Text(item.phrase.en).font(.xa(17, .semibold)).foregroundStyle(Palette.ink2)
+                    if !learning.doneToday {
+                        ForEach(coach.todayItems) { item in
+                            HStack(spacing: 12) {
+                                Text(item.isReview ? "复习" : "新")
+                                    .font(.xa(16, .heavy)).foregroundStyle(item.isReview ? Palette.tealInk : Palette.persimmon)
+                                    .frame(width: 48, height: 32)
+                                    .background(Capsule().fill(item.isReview ? Palette.mint : Palette.peach))
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(item.phrase.zh).font(.xa(21, .heavy))
+                                    Text(item.phrase.en).font(.xa(17, .semibold)).foregroundStyle(Palette.ink2)
+                                }
+                                Spacer(minLength: 0)
                             }
-                            Spacer(minLength: 0)
+                            .padding(14)
+                            .background(RoundedRectangle(cornerRadius: 18).fill(.white))
                         }
-                        .padding(14)
-                        .background(RoundedRectangle(cornerRadius: 18).fill(.white))
                     }
-                    if coach.items.isEmpty {
-                        Text("所有句子都学过了！可以点下面多练几句。").font(.xa(20, .bold)).card()
+                    Text("按场景练习").font(.xa(24, .heavy)).padding(.top, 6)
+                    Text("出门要用的话，挑一个场景，一句一句学").font(.xa(18, .semibold)).foregroundStyle(Palette.ink2)
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                        ForEach(units) { unit in
+                            sceneCard(unit)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
+                .padding(.bottom, 8)
             }
             Group {
-                if coach.items.isEmpty || learning.doneToday {
-                    BigButton(title: "多练几句", systemImage: "arrow.clockwise", fill: Palette.teal, depth: Palette.tealDeep) {
-                        coach.practiceMore(store: learning, config: store.config)
+                if coach.todayItems.isEmpty || learning.doneToday {
+                    BigButton(title: "再学几句新的", systemImage: "plus", fill: Palette.teal, depth: Palette.tealDeep) {
+                        coach.startMore(store: learning, config: store.config)
                     }
                 } else {
-                    BigButton(title: "开始", systemImage: "play.fill") { coach.begin() }
+                    BigButton(title: coach.todayStarted ? "接着学今天的课" : "开始今天的课", systemImage: "play.fill") {
+                        coach.startToday()
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -88,9 +108,70 @@ private struct CoachScreen: View {
         }
     }
 
+    private var units: [LessonUnit] { Curriculum.units(for: store.config) }
+
+    private func sceneCard(_ unit: LessonUnit) -> some View {
+        let learned = unit.phrases.filter { learning.stat($0.id).mastered }.count
+        return Button {
+            coach.startScene(unit, store: learning)
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: Self.icon(for: unit.id))
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(Palette.teal)
+                Text(unit.title).font(.xa(20, .heavy)).foregroundStyle(Palette.ink)
+                    .lineLimit(2).minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(learned == 0 ? "\(unit.phrases.count) 句" : "学会 \(learned)/\(unit.phrases.count)")
+                    .font(.xa(16, .bold))
+                    .foregroundStyle(learned == unit.phrases.count ? Palette.tealInk : Palette.ink2)
+            }
+            .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 20).fill(.white))
+            .overlay(RoundedRectangle(cornerRadius: 20)
+                .strokeBorder(learned == unit.phrases.count ? Palette.teal : Palette.line, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private static func icon(for unit: Int) -> String {
+        switch unit {
+        case 1: return "hand.wave.fill"
+        case 2: return "star.fill"
+        case 3: return "questionmark.bubble.fill"
+        case 4: return "person.fill"
+        case 5: return "cross.case.fill"
+        case 6: return "dollarsign.circle.fill"
+        case 7: return "cart.fill"
+        case 8: return "cup.and.saucer.fill"
+        case 9: return "car.fill"
+        case 10: return "pills.fill"
+        case 11: return "house.fill"
+        case 12: return "clock.fill"
+        case 13: return "shield.fill"
+        case 14: return "carrot.fill"
+        case 15: return "tshirt.fill"
+        case 16: return "fork.knife"
+        case 17: return "map.fill"
+        case 18: return "bus.fill"
+        case 19: return "door.left.hand.open"
+        case 20: return "heart.fill"
+        case 21: return "stethoscope"
+        case 22: return "cloud.sun.fill"
+        case 23: return "figure.2.and.child.holdinghands"
+        case 24: return "leaf.fill"
+        case 25: return "phone.fill"
+        case 26: return "building.columns.fill"
+        case 27: return "number"
+        case 28: return "calendar"
+        default: return "face.smiling.fill"
+        }
+    }
+
     /// e.g. "主题：打招呼和礼貌。我说一遍，你跟着说"
     private var overviewDetail: String {
-        let topic = coach.items.first(where: { !$0.isReview })
+        let topic = coach.todayItems.first(where: { !$0.isReview })
             .flatMap { Curriculum.unitTitle(of: $0.phrase.id, config: store.config) }
         let lead = coach.reviewCount > 0 ? "先复习 \(coach.reviewCount) 句学过的" : "我说一遍，你跟着说"
         return topic.map { "主题：\($0)。\(lead)" } ?? lead
@@ -201,6 +282,10 @@ private struct CoachScreen: View {
                     Spacer()
                     TriesDots(used: coach.tries, total: CoachModel.maxTries)
                 }
+                if !coach.heard.isEmpty {
+                    Text("我听到的是：\(coach.heard)")
+                        .font(.xa(19, .bold)).foregroundStyle(Palette.ink2)
+                }
                 Text(tip).font(.xa(20, .semibold)).foregroundStyle(Color(hex: 0x23403A)).lineSpacing(3)
             }
             .card(Palette.mint)
@@ -242,8 +327,20 @@ private struct CoachScreen: View {
             BigButton(title: "我听听……", fill: Palette.line, depth: nil, foreground: Palette.ink2, height: 80) {}
                 .disabled(true)
         default:
-            HoldToTalkButton(title: "按住，说英语", activeTitle: "说完松开", isActive: listener.isListening,
-                             height: 80, onStart: startListening, onEnd: stopListening)
+            VStack(spacing: 8) {
+                HoldToTalkButton(title: "按住，说英语", activeTitle: "说完松开", isActive: listener.isListening,
+                                 height: 80, onStart: startListening, onEnd: stopListening)
+                Button {
+                    listener.cancel()
+                    coach.skip(store: learning)
+                } label: {
+                    Label("跳过这句", systemImage: "forward.fill")
+                        .font(.xa(19, .bold)).foregroundStyle(Palette.ink2)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .disabled(listener.isListening)
+            }
         }
     }
 
@@ -253,7 +350,7 @@ private struct CoachScreen: View {
         VStack(spacing: 16) {
             Spacer()
             Mascot(size: 140)
-            Text("今天的课学完啦！").font(.xa(32, .heavy))
+            Text(coach.session == .today ? "今天的课学完啦！" : "这一组练完啦！").font(.xa(32, .heavy))
             HStack(spacing: 6) {
                 Image(systemName: "star.fill").foregroundStyle(Palette.gold)
                 Text("今天得了 \(coach.starsToday) 颗星").font(.xa(24, .heavy))
@@ -261,12 +358,21 @@ private struct CoachScreen: View {
             if learning.streak > 0 {
                 Text("已经连续学了 \(learning.streak) 天").font(.xa(22, .bold)).foregroundStyle(Palette.ink2)
             }
-            Text("明天见！").font(.xa(22, .bold)).foregroundStyle(Palette.ink2)
             Spacer()
-            SoftButton(title: "再多练几句", systemImage: "arrow.clockwise", height: 64, fontSize: 22) {
-                coach.practiceMore(store: learning, config: store.config)
+            if case .scene(let id) = coach.session, let next = units.first(where: { $0.id > id }) {
+                BigButton(title: "下一个场景：\(next.title)", systemImage: "chevron.right", fill: Palette.teal, depth: Palette.tealDeep,
+                          height: 72, fontSize: 22) {
+                    coach.startScene(next, store: learning)
+                }
+            } else {
+                BigButton(title: "再学几句新的", systemImage: "plus", fill: Palette.teal, depth: Palette.tealDeep) {
+                    coach.startMore(store: learning, config: store.config)
+                }
             }
-            BigButton(title: "回首页", systemImage: "house.fill", fill: Palette.teal, depth: Palette.tealDeep) {
+            SoftButton(title: "选别的场景", systemImage: "square.grid.2x2.fill", height: 64, fontSize: 22) {
+                coach.showOverview()
+            }
+            SoftButton(title: "回首页", systemImage: "house.fill", height: 56, fontSize: 20) {
                 app.home()
             }
         }
@@ -285,7 +391,10 @@ private struct CoachScreen: View {
                     coach.paused = false
                     coach.playModel()
                 }
-                SoftButton(title: "回首页", systemImage: "house.fill", height: 64, fontSize: 22) {
+                SoftButton(title: "选别的场景", systemImage: "square.grid.2x2.fill", height: 64, fontSize: 22) {
+                    coach.showOverview()
+                }
+                SoftButton(title: "回首页", systemImage: "house.fill", height: 56, fontSize: 20) {
                     coach.paused = false
                     app.home()
                 }
@@ -306,14 +415,24 @@ private struct CoachScreen: View {
             return
         }
         Task {
-            do { try await listener.start(locale: "en-US", preferOnDevice: true) }
+            do { try await listener.start(locale: "en-US", record: true) }
             catch { listenError = error.localizedDescription }
         }
     }
 
     private func stopListening() {
         Task {
-            let heard = Demo.isOn ? listener.stopDemo() : await listener.stop()
+            var heard = Demo.isOn ? listener.stopDemo() : await listener.stop()
+            if heard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !Demo.isOn,
+               let recording = listener.lastRecording, let key = APIKeys.get(.openAI) {
+                coach.showChecking()
+                do {
+                    heard = try await OpenAITranscribe.transcribe(recording, apiKey: key, language: "en")
+                    print("[XA] Learn: Apple heard nothing; OpenAI heard \"\(heard)\"")
+                } catch {
+                    print("[XA] Learn: OpenAI check failed: \(error.localizedDescription)")
+                }
+            }
             await coach.evaluate(heard: heard, store: learning, config: store.config)
         }
     }

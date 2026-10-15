@@ -1,7 +1,13 @@
 import SwiftUI
 
-/// Runs today's lesson: she hears it, says it first, gets one specific tip, and tries again.
-/// After 4 tries the coach praises her effort and saves the phrase for tomorrow's review.
+/// Runs a lesson: she hears a phrase, says it, sees what 小A heard, gets one specific tip, and
+/// tries again. After 4 tries (or whenever she taps 跳过) she moves on and the phrase comes
+/// back in review.
+///
+/// Three ways in:
+/// - 今天的课: a few review phrases plus a few new ones, in curriculum order (resumable).
+/// - 按场景练: every phrase of one everyday scene (supermarket, doctor, bus…), in order.
+/// - 再学几句新的: the next new phrases, any time, even after today's lesson.
 @MainActor
 final class CoachModel: ObservableObject {
     enum Stage: Equatable {
@@ -12,6 +18,12 @@ final class CoachModel: ObservableObject {
         case passed(stars: Int)
         case gaveUp
         case finished
+    }
+
+    enum Session: Equatable {
+        case today
+        case scene(Int)
+        case more
     }
 
     struct Item: Identifiable {
@@ -25,13 +37,20 @@ final class CoachModel: ObservableObject {
     @Published private(set) var items: [Item] = []
     @Published private(set) var index = 0
     @Published private(set) var stage: Stage = .overview
+    @Published private(set) var session: Session = .today
+    @Published private(set) var sessionTitle: String?
     @Published private(set) var tries = 0
     @Published private(set) var missed: Set<String> = []
+    /// What the phone heard on the last try, shown under the sentence.
+    @Published private(set) var heard = ""
     @Published private(set) var starsToday = 0
     @Published var paused = false
 
     private(set) var startedAt: Date?
     private var preparedDay = ""
+    /// Today's lesson is kept aside while she practises a scene, so she can come back to it.
+    private(set) var todayItems: [Item] = []
+    private(set) var todayIndex = 0
 
     var current: Item? { items.indices.contains(index) ? items[index] : nil }
     var progress: Double {
@@ -43,8 +62,9 @@ final class CoachModel: ObservableObject {
         }
         return min(1, Double(done) / Double(items.count))
     }
-    var newCount: Int { items.filter { !$0.isReview }.count }
-    var reviewCount: Int { items.filter(\.isReview).count }
+    var newCount: Int { todayItems.filter { !$0.isReview }.count }
+    var reviewCount: Int { todayItems.filter(\.isReview).count }
+    var todayStarted: Bool { todayIndex > 0 }
 
     func minutesLeft(at now: Date) -> Int {
         guard let startedAt else { return 30 }
@@ -58,24 +78,20 @@ final class CoachModel: ObservableObject {
         guard preparedDay != today else { return }
         preparedDay = today
         let plan = store.todaysPlan(for: config)
-        items = plan.review.map { Item(phrase: $0, isReview: true) } + plan.new.map { Item(phrase: $0, isReview: false) }
-        index = 0
+        todayItems = plan.review.map { Item(phrase: $0, isReview: true) } + plan.new.map { Item(phrase: $0, isReview: false) }
+        todayIndex = 0
         starsToday = 0
         startedAt = nil
-        stage = .overview
+        showOverview()
     }
 
-    /// A few extra review phrases after the main lesson.
-    func practiceMore(store: LearningStore, config: AppConfig) {
-        let learned = store.allPhrases(for: config).filter { store.stat($0.id).attempts > 0 }
-        let pick = Array(learned.shuffled().prefix(4))
-        guard !pick.isEmpty else { return }
-        items = pick.map { Item(phrase: $0, isReview: true) }
-        index = 0
-        beginPhrase()
-    }
+    // MARK: Starting
 
-    func begin() {
+    func startToday() {
+        session = .today
+        sessionTitle = nil
+        items = todayItems
+        index = todayIndex
         if startedAt == nil { startedAt = Date() }
         guard current != nil else {
             stage = .finished
@@ -84,9 +100,51 @@ final class CoachModel: ObservableObject {
         beginPhrase()
     }
 
+    /// Every phrase of one everyday scene, in order.
+    func startScene(_ unit: LessonUnit, store: LearningStore) {
+        guard !unit.phrases.isEmpty else { return }
+        session = .scene(unit.id)
+        sessionTitle = unit.title
+        items = unit.phrases.map { Item(phrase: $0, isReview: store.stat($0.id).attempts > 0) }
+        index = 0
+        if startedAt == nil { startedAt = Date() }
+        print("[XA] Learn: scene \(unit.id) \(unit.title), \(items.count) phrases")
+        beginPhrase()
+    }
+
+    /// The next new phrases in curriculum order; if she has tried them all, a mix of learned ones.
+    func startMore(store: LearningStore, config: AppConfig) {
+        let all = store.allPhrases(for: config)
+        var pick = all.filter { store.data.stats[$0.id] == nil }.prefix(max(4, config.newPhrasesPerDay))
+            .map { Item(phrase: $0, isReview: false) }
+        if pick.isEmpty {
+            pick = all.filter { store.stat($0.id).attempts > 0 }.shuffled().prefix(6)
+                .map { Item(phrase: $0, isReview: true) }
+        }
+        guard !pick.isEmpty else { return }
+        session = .more
+        sessionTitle = "再学几句"
+        items = pick
+        index = 0
+        if startedAt == nil { startedAt = Date() }
+        beginPhrase()
+    }
+
+    /// Back to the 学英语 start screen. Today's lesson keeps its place.
+    func showOverview() {
+        Speaker.shared.stop()
+        session = .today
+        sessionTitle = nil
+        items = todayItems
+        index = todayIndex
+        paused = false
+        stage = .overview
+    }
+
     private func beginPhrase() {
         tries = 0
         missed = []
+        heard = ""
         stage = .ready
         playModel()
     }
@@ -96,23 +154,39 @@ final class CoachModel: ObservableObject {
         Speaker.shared.speakEnglish(phrase.en, slow: slow)
     }
 
-    func evaluate(heard: String, store: LearningStore, config: AppConfig) async {
+    /// The phone is working out what she said (shown while a slower check runs).
+    func showChecking() {
+        stage = .checking
+    }
+
+    // MARK: Checking
+
+    func evaluate(heard rawHeard: String, store: LearningStore, config: AppConfig) async {
         guard let item = current else { return }
-        var clean = heard.trimmingCharacters(in: .whitespacesAndNewlines)
+        var clean = rawHeard.trimmingCharacters(in: .whitespacesAndNewlines)
         if Demo.isOn && clean.isEmpty {
             clean = Demo.heard(for: item.phrase.en, attempt: tries + 1)
         }
+        tries += 1
+        heard = clean
+
         if clean.isEmpty {
-            stage = .retry(tip: "我没听到声音。按住按钮，大声一点，说完再松开。", close: false)
-            Speaker.shared.speakChinese("我没听到声音，大声一点再说一次。")
+            print("[XA] Learn: \"\(item.phrase.en)\" try \(tries): heard nothing")
+            if tries >= Self.maxTries {
+                giveUp(item, store: store)
+                return
+            }
+            stage = .retry(tip: "我没听清。按住橙色按钮，看到“正在听”再说，说完再松开。", close: false)
+            Speaker.shared.speakChinese("我没听清，按住按钮，大声一点再说一次。")
             return
         }
 
-        tries += 1
         let result = PronunciationCheck.score(target: item.phrase.en, heard: clean)
         missed = Set(result.missed)
         let passed = config.strictPronunciation ? result.missed.isEmpty : result.score >= 0.75
         store.recordAttempt(item.phrase.id, passed: passed)
+        print(String(format: "[XA] Learn: \"%@\" try %ld: heard \"%@\" — %.0f%%%@", item.phrase.en, tries, clean,
+                     result.score * 100, passed ? " PASS" : " (missed: \(result.missed.joined(separator: ", ")))"))
 
         if passed {
             let stars = tries == 1 ? 3 : (tries == 2 ? 2 : 1)
@@ -125,9 +199,7 @@ final class CoachModel: ObservableObject {
         }
 
         if tries >= Self.maxTries {
-            stage = .gaveUp
-            store.finishPhrase(item.phrase.id, passed: false, triesToday: tries)
-            Speaker.shared.speakChinese("你很努力了！这句明天再练，我们先学下一句。")
+            giveUp(item, store: store)
             return
         }
 
@@ -142,14 +214,35 @@ final class CoachModel: ObservableObject {
         ])
     }
 
+    private func giveUp(_ item: Item, store: LearningStore) {
+        stage = .gaveUp
+        store.finishPhrase(item.phrase.id, passed: false, triesToday: tries)
+        Speaker.shared.speakChinese("你很努力了！这句以后再练，我们先学下一句。")
+    }
+
+    /// 跳过这句: move on now. A phrase she tried comes back in review; one she never tried stays new.
+    func skip(store: LearningStore) {
+        guard let item = current else { return }
+        Speaker.shared.stop()
+        if tries > 0 { store.finishPhrase(item.phrase.id, passed: false, triesToday: tries) }
+        print("[XA] Learn: skipped \"\(item.phrase.en)\" after \(tries) tries")
+        next(store: store)
+    }
+
     func next(store: LearningStore) {
         if index + 1 < items.count {
             index += 1
+            if session == .today { todayIndex = index }
             beginPhrase()
         } else {
+            if session == .today {
+                todayIndex = items.count
+                store.markDayDone()
+                Speaker.shared.speakChinese("今天的课学完啦！你真棒！")
+            } else {
+                Speaker.shared.speakChinese("这一组练完啦！你真棒！")
+            }
             stage = .finished
-            store.markDayDone()
-            Speaker.shared.speakChinese("今天的课学完啦！你真棒！")
         }
     }
 

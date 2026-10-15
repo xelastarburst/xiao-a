@@ -245,7 +245,7 @@ struct AlexModeView: View {
                 DatePicker("Reminder time", selection: reminderTime, displayedComponents: .hourAndMinute)
             }
             Stepper("New phrases per day: \(store.config.newPhrasesPerDay)",
-                    value: $store.config.newPhrasesPerDay, in: 2...6)
+                    value: $store.config.newPhrasesPerDay, in: 2...10)
             Toggle("Strict pronunciation", isOn: $store.config.strictPronunciation)
             LabeledContent("Days completed", value: "\(learning.data.daysDone.count)")
             LabeledContent("Current streak", value: "\(learning.streak) days")
