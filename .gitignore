@@ -1,0 +1,12 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+.swiftpm/
+# macOS
+.DS_Store
+# Secrets never live in the code (API keys are entered in Alex mode and kept in the iPhone Keychain)
+*.p12
+*.mobileprovision
