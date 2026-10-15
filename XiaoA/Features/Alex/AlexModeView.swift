@@ -17,6 +17,8 @@ struct AlexModeView: View {
     @State private var newPIN = ""
     @State private var pinStatus = ""
     @AppStorage("demoSound") private var demoSound = false
+    @AppStorage(InterpreterVoice.momKey) private var voiceForMom = InterpreterVoice.defaultID
+    @AppStorage(InterpreterVoice.othersKey) private var voiceForOthers = InterpreterVoice.defaultID
 
     private var reminderTime: Binding<Date> {
         Binding {
@@ -106,6 +108,23 @@ struct AlexModeView: View {
                 Text("API keys")
             } footer: {
                 Text("Stored in the Keychain on this phone only. Leave a field empty to keep the saved key.")
+            }
+
+            Section {
+                NavigationLink {
+                    VoiceChooser(title: "Mom's words", key: InterpreterVoice.momKey, chinese: false)
+                } label: {
+                    LabeledContent("Mom's words (English/German)", value: InterpreterVoice.named(voiceForMom).name)
+                }
+                NavigationLink {
+                    VoiceChooser(title: "Others' words", key: InterpreterVoice.othersKey, chinese: true)
+                } label: {
+                    LabeledContent("Others' words (Chinese)", value: InterpreterVoice.named(voiceForOthers).name)
+                }
+            } header: {
+                Text("Interpreter voices")
+            } footer: {
+                Text("The voice 翻译官 uses for each side. Tap a side to hear the voices and pick one.")
             }
 
             Section {

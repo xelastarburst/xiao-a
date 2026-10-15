@@ -72,6 +72,7 @@ final class InterpreterEngine: ObservableObject {
     private var ticker: Timer?
     private var demoTask: Task<Void, Never>?
     private var startedAt = Date()
+    private var lastLevelLog = Date()
 
     private struct Timing {
         var speechEnded: Date?
@@ -109,7 +110,9 @@ final class InterpreterEngine: ObservableObject {
         speakingTurn = false
         timing.removeAll()
         startedAt = Date()
-        print("[XA] ===== conversation started (turn by turn): Chinese <-> \(partner.rawValue) =====")
+        lastLevelLog = Date()
+        print("[XA] ===== conversation started (turn by turn): Chinese <-> \(partner.rawValue), "
+              + "voices: Mom \(InterpreterVoice.forMom), others \(InterpreterVoice.forOthers) =====")
         Task {
             guard await AVAudioApplication.requestRecordPermission() else {
                 status = .failed("需要打开麦克风权限。请让 Alex 在 iPhone 设置 › 小A 里打开。")
@@ -351,8 +354,9 @@ final class InterpreterEngine: ObservableObject {
 
     private func speakAloud(_ line: Line) async {
         let chinese = !line.fromMom
+        let voice = line.fromMom ? InterpreterVoice.forMom : InterpreterVoice.forOthers
         do {
-            try await OpenAISpeech.speak(line.translated, apiKey: openAIKey, chinese: chinese) { [weak self] chunk in
+            try await OpenAISpeech.speak(line.translated, apiKey: openAIKey, voice: voice, chinese: chinese) { [weak self] chunk in
                 await self?.play(chunk, for: line.id)
             }
         } catch {
@@ -412,6 +416,10 @@ final class InterpreterEngine: ObservableObject {
         }
         if !askKeepListening && Date().timeIntervalSince(lastActivity) > silencePrompt {
             askKeepListening = true
+        }
+        if Date().timeIntervalSince(lastLevelLog) >= 15 {
+            lastLevelLog = Date()
+            print("[XA] \(stamp(Date())) mic: \(audio.levelReport())")
         }
     }
 

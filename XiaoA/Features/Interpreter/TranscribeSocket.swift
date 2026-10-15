@@ -55,10 +55,11 @@ final class TranscribeSocket {
                             "format": ["type": "audio/pcm", "rate": 24_000],
                             "noise_reduction": ["type": "near_field"],
                             "transcription": ["model": model, "prompt": prompt],
-                            // A sentence ends after 0.7 s of quiet; short "um"s don't count.
+                            // A sentence ends after 0.7 s of quiet; short "um"s and soft background
+                            // sound don't count (the phone also holds back room noise, see InterpreterAudio).
                             "turn_detection": [
                                 "type": "server_vad",
-                                "threshold": 0.5,
+                                "threshold": 0.6,
                                 "prefix_padding_ms": 300,
                                 "silence_duration_ms": 700
                             ]
@@ -169,19 +170,21 @@ enum OpenAISpeech {
     static let model = "gpt-4o-mini-tts"
 
     /// Calls `onAudio` with 24 kHz mono PCM16 chunks (~100 ms each) as they arrive.
-    static func speak(_ text: String, apiKey: String, chinese: Bool,
+    static func speak(_ text: String, apiKey: String, voice: String, chinese: Bool,
                       onAudio: @escaping (Data) async -> Void) async throws {
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/speech")!)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let projection = " Speak up and project clearly, as if across a table in a busy café, "
+            + "but stay friendly and relaxed, never shouting."
         let instructions = chinese
-            ? "Speak natural, warm Mandarin Chinese (standard Putonghua), clearly and a little slowly, for an elderly listener."
-            : "Speak naturally and warmly, clearly and at a calm pace, like a friendly interpreter."
+            ? "Speak natural, warm Mandarin Chinese (standard Putonghua), clearly and a little slowly, for an elderly listener." + projection
+            : "Speak naturally and warmly, clearly and at a calm pace, like a friendly interpreter." + projection
         let body: [String: Any] = [
             "model": model,
-            "voice": "coral",
+            "voice": voice,
             "input": text,
             "instructions": instructions,
             "response_format": "pcm"
