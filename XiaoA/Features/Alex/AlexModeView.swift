@@ -108,7 +108,7 @@ struct AlexModeView: View {
             } header: {
                 Text("API keys")
             } footer: {
-                Text("Stored in the Keychain on this phone only. Leave a field empty to keep the saved key.")
+                Text("Stored in the Keychain on this phone only. Leave a field empty to keep the saved key. A phone with no saved key uses the keys built into the app (BundledKeys.json on Alex's Mac).")
             }
 
             Section {

@@ -7,6 +7,8 @@ xcuserdata/
 .swiftpm/
 # macOS
 .DS_Store
-# Secrets never live in the code (API keys are entered in Alex mode and kept in the iPhone Keychain)
+# Secrets never live in the code or in git. API keys are entered in Alex mode (iPhone Keychain)
+# or built in from XiaoA/BundledKeys.json, which exists only on Alex's Mac.
+XiaoA/BundledKeys.json
 *.p12
 *.mobileprovision
