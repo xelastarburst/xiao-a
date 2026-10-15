@@ -3,7 +3,7 @@ import SwiftUI
 /// 学英语: today's 30-minute spoken lesson.
 struct LearnView: View {
     @EnvironmentObject private var app: AppState
-    var body: some View { CoachScreen(coach: app.coach) }
+    var body: some View { CoachScreen(coach: app.coach, listener: app.coach.listener) }
 }
 
 private struct CoachScreen: View {
@@ -11,8 +11,7 @@ private struct CoachScreen: View {
     @EnvironmentObject private var app: AppState
     @EnvironmentObject private var store: ConfigStore
     @EnvironmentObject private var learning: LearningStore
-    @StateObject private var listener = SpeechListener()
-    @State private var listenError: String?
+    @ObservedObject var listener: SpeechListener
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,10 +28,7 @@ private struct CoachScreen: View {
         .onAppear { coach.prepareIfNeeded(store: learning, config: store.config) }
         // Ask for the microphone up front, so the system prompt never interrupts a press.
         .task { _ = await SpeechListener.requestPermissions() }
-        .onDisappear {
-            listener.cancel()
-            Speaker.shared.stop()
-        }
+        .onDisappear { coach.stopLoop() }
         .overlay {
             if coach.paused { pausedOverlay }
         }
@@ -41,10 +37,7 @@ private struct CoachScreen: View {
     /// In a lesson, ← goes back to the 学英语 start screen instead of home.
     private var backToScenes: (() -> Void)? {
         guard coach.stage != .overview else { return nil }
-        return {
-            listener.cancel()
-            coach.showOverview()
-        }
+        return { coach.showOverview() }
     }
 
     // MARK: Overview
@@ -186,14 +179,14 @@ private struct CoachScreen: View {
                 ScrollView {
                     VStack(spacing: 12) {
                         phraseCard(item)
-                        if listener.isListening {
-                            Text(listener.transcript.isEmpty ? "正在听……" : listener.transcript)
+                        if coach.phase == .listening {
+                            Text(listener.transcript.isEmpty ? "正在听，请说……" : listener.transcript)
                                 .font(.xa(22, .bold)).foregroundStyle(Palette.ink2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .card(Palette.peach.opacity(0.6))
                         }
                         feedback
-                        if let listenError {
+                        if let listenError = coach.listenError {
                             ErrorCard(title: "没听成", detail: listenError)
                         }
                     }
@@ -229,9 +222,7 @@ private struct CoachScreen: View {
                     .scaleEffect(x: 1, y: 2.2, anchor: .center)
             }
             IconButton(systemImage: "pause.fill", label: "暂停", fill: .white, size: 60) {
-                listener.cancel()
-                Speaker.shared.stop()
-                coach.paused = true
+                coach.pause()
             }
             .overlay(Circle().strokeBorder(Palette.line, lineWidth: 3))
         }
@@ -280,13 +271,17 @@ private struct CoachScreen: View {
                 HStack {
                     Text(close ? "很接近了！" : "再试一次！").font(.xa(26, .heavy)).foregroundStyle(Palette.tealInk)
                     Spacer()
-                    TriesDots(used: coach.tries, total: CoachModel.maxTries)
+                    Text("第 \(coach.tries) 次").font(.xa(16, .bold)).foregroundStyle(Color(hex: 0x33504A))
                 }
                 if !coach.heard.isEmpty {
                     Text("我听到的是：\(coach.heard)")
                         .font(.xa(19, .bold)).foregroundStyle(Palette.ink2)
                 }
                 Text(tip).font(.xa(20, .semibold)).foregroundStyle(Color(hex: 0x23403A)).lineSpacing(3)
+                if coach.tries >= CoachModel.suggestSkipAfter {
+                    Text("这句有点难，不着急。想换一句就点“跳过这句”，以后再练。")
+                        .font(.xa(18, .semibold)).foregroundStyle(Palette.ink2)
+                }
             }
             .card(Palette.mint)
         case .passed(let stars):
@@ -305,33 +300,20 @@ private struct CoachScreen: View {
             }
             .foregroundStyle(Palette.warnInk)
             .card(Palette.butter)
-        case .gaveUp:
-            VStack(alignment: .leading, spacing: 4) {
-                Text("你很努力了！").font(.xa(26, .heavy))
-                Text("这句明天再练，我们先学下一句。").font(.xa(20, .semibold))
-            }
-            .foregroundStyle(Color(hex: 0x33455C))
-            .card(Palette.sky)
         default:
             EmptyView()
         }
     }
 
     @ViewBuilder private var bottomAction: some View {
-        switch coach.stage {
-        case .passed, .gaveUp:
+        if case .passed = coach.stage {
             BigButton(title: "下一句", systemImage: "chevron.right", fill: Palette.teal, depth: Palette.tealDeep, height: 80, fontSize: 28) {
                 coach.next(store: learning)
             }
-        case .checking:
-            BigButton(title: "我听听……", fill: Palette.line, depth: nil, foreground: Palette.ink2, height: 80) {}
-                .disabled(true)
-        default:
+        } else {
             VStack(spacing: 8) {
-                HoldToTalkButton(title: "按住，说英语", activeTitle: "说完松开", isActive: listener.isListening,
-                                 height: 80, onStart: startListening, onEnd: stopListening)
+                statusBar
                 Button {
-                    listener.cancel()
                     coach.skip(store: learning)
                 } label: {
                     Label("跳过这句", systemImage: "forward.fill")
@@ -339,7 +321,27 @@ private struct CoachScreen: View {
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.plain)
-                .disabled(listener.isListening)
+            }
+        }
+    }
+
+    /// Hands-free: shows what 小A is doing. Only when it has stopped is there a button.
+    @ViewBuilder private var statusBar: some View {
+        switch coach.phase {
+        case .speaking:
+            StatusPill(systemImage: "speaker.wave.2.fill", text: "先听我说……", fill: Palette.sky, ink: Palette.ink)
+        case .listening:
+            StatusPill(systemImage: "waveform", text: "该你说了，我在听", fill: Palette.persimmon, ink: .white, animating: true)
+        case .checking:
+            StatusPill(systemImage: "ellipsis", text: "我听听……", fill: Palette.mint, ink: Palette.tealInk, animating: true)
+        case .idle:
+            VStack(spacing: 6) {
+                if coach.tries == 0 && coach.listenError == nil {
+                    Text("准备好了就点下面，我说一遍，你跟着说").font(.xa(18, .semibold)).foregroundStyle(Palette.ink2)
+                }
+                BigButton(title: "开始跟读", systemImage: "mic.fill", height: 80, fontSize: 28) {
+                    coach.resume()
+                }
             }
         }
     }
@@ -388,8 +390,7 @@ private struct CoachScreen: View {
                 Text("休息一下").font(.xa(28, .heavy))
                 Text("回来接着学，进度不会丢。").font(.xa(20, .semibold)).foregroundStyle(Palette.ink2)
                 BigButton(title: "继续学", systemImage: "play.fill") {
-                    coach.paused = false
-                    coach.playModel()
+                    coach.unpause()
                 }
                 SoftButton(title: "选别的场景", systemImage: "square.grid.2x2.fill", height: 64, fontSize: 22) {
                     coach.showOverview()
@@ -402,38 +403,6 @@ private struct CoachScreen: View {
             .padding(24)
             .background(RoundedRectangle(cornerRadius: 30).fill(Palette.cream))
             .padding(24)
-        }
-    }
-
-    // MARK: Actions
-
-    private func startListening() {
-        listenError = nil
-        Speaker.shared.stop()
-        if Demo.isOn {
-            listener.startDemo()
-            return
-        }
-        Task {
-            do { try await listener.start(locale: "en-US", record: true) }
-            catch { listenError = error.localizedDescription }
-        }
-    }
-
-    private func stopListening() {
-        Task {
-            var heard = Demo.isOn ? listener.stopDemo() : await listener.stop()
-            if heard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !Demo.isOn,
-               let recording = listener.lastRecording, let key = APIKeys.get(.openAI) {
-                coach.showChecking()
-                do {
-                    heard = try await OpenAITranscribe.transcribe(recording, apiKey: key, language: "en")
-                    print("[XA] Learn: Apple heard nothing; OpenAI heard \"\(heard)\"")
-                } catch {
-                    print("[XA] Learn: OpenAI check failed: \(error.localizedDescription)")
-                }
-            }
-            await coach.evaluate(heard: heard, store: learning, config: store.config)
         }
     }
 
@@ -481,18 +450,25 @@ private struct CoachScreen: View {
     }
 }
 
-private struct TriesDots: View {
-    var used: Int
-    var total: Int
+/// A full-width status bar in place of a button: what 小A is doing right now.
+private struct StatusPill: View {
+    var systemImage: String
+    var text: String
+    var fill: Color
+    var ink: Color
+    var animating = false
+
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<total, id: \.self) { i in
-                Circle()
-                    .fill(i < used ? Palette.teal : Color.clear)
-                    .overlay(Circle().strokeBorder(Palette.teal, lineWidth: 2))
-                    .frame(width: 14, height: 14)
-            }
-            Text("第 \(used) 次").font(.xa(16, .bold)).foregroundStyle(Color(hex: 0x33504A))
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 26, weight: .bold))
+                .symbolEffect(.variableColor.iterative, isActive: animating)
+            Text(text).font(.xa(26, .heavy))
         }
+        .foregroundStyle(ink)
+        .frame(maxWidth: .infinity)
+        .frame(height: 80)
+        .background(Capsule().fill(fill))
+        .accessibilityElement(children: .combine)
     }
 }

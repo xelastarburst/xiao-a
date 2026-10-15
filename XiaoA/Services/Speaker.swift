@@ -67,6 +67,28 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
 
     func stop() { synth.stopSpeaking(at: .immediate) }
 
+    /// English one word at a time (as sequence parts), for a beginner to follow.
+    func wordByWord(_ english: String, rate: Float) -> [(text: String, language: String, rate: Float)] {
+        english.split(separator: " ").map { (String($0), "en-US", rate) }
+    }
+
+    /// Waits until everything queued has been said, plus a moment, so the microphone that
+    /// opens next never hears the phone itself. Returns early if the task is cancelled.
+    func waitUntilDone(timeout: TimeInterval = 40) async {
+        let started = Date()
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        var quietPolls = 0
+        while !Task.isCancelled && Date().timeIntervalSince(started) < timeout {
+            if synth.isSpeaking {
+                quietPolls = 0
+            } else {
+                quietPolls += 1
+                if quietPolls >= 3 { return }
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+
     /// The simulator demo keeps quiet (timing and callbacks unchanged) unless Alex turns sound on.
     private static var silent: Bool { Demo.isOn && !Demo.soundOn }
 

@@ -1,8 +1,38 @@
 import SwiftUI
 
-/// Runs a lesson: she hears a phrase, says it, sees what 小A heard, gets one specific tip, and
-/// tries again. After 4 tries (or whenever she taps 跳过) she moves on and the phrase comes
-/// back in review.
+/// How fast 小A reads English in lessons (Alex mode › Learning).
+enum LearnSpeed: String, CaseIterable, Identifiable {
+    case normal, slow, verySlow
+    var id: String { rawValue }
+    static let key = "learnSpeed"
+
+    var rate: Float {
+        switch self {
+        case .normal: return 0.42
+        case .slow: return 0.36
+        case .verySlow: return 0.30
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .normal: return "Normal"
+        case .slow: return "Slow"
+        case .verySlow: return "Very slow"
+        }
+    }
+
+    static var current: LearnSpeed {
+        LearnSpeed(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .slow
+    }
+}
+
+/// Runs a lesson, hands-free, like a patient teacher:
+/// 1. 小A says the phrase (slowly), then listens on its own. No button to hold.
+/// 2. When she pauses, it checks what she said against the phrase.
+/// 3. Not yet? One specific tip, the phrase again (word by word after the second try), and it
+///    listens again, for as long as it takes. Right? Stars, and 下一句 when she's ready.
+/// 跳过这句 is always there, and a phrase she skips or struggles with comes back in review.
 ///
 /// Three ways in:
 /// - 今天的课: a few review phrases plus a few new ones, in curriculum order (resumable).
@@ -16,8 +46,16 @@ final class CoachModel: ObservableObject {
         case checking
         case retry(tip: String, close: Bool)
         case passed(stars: Int)
-        case gaveUp
         case finished
+    }
+
+    /// What the phone is doing right now during a phrase.
+    enum Phase: Equatable {
+        /// Waiting for her to tap 开始跟读 (e.g. she walked away, or after a pause).
+        case idle
+        case speaking
+        case listening
+        case checking
     }
 
     enum Session: Equatable {
@@ -32,17 +70,22 @@ final class CoachModel: ObservableObject {
         var id: String { (isReview ? "r-" : "n-") + phrase.id }
     }
 
-    static let maxTries = 4
+    /// After this many tries, 跳过这句 is suggested (listening still goes on).
+    static let suggestSkipAfter = 5
+
+    let listener = SpeechListener()
 
     @Published private(set) var items: [Item] = []
     @Published private(set) var index = 0
     @Published private(set) var stage: Stage = .overview
+    @Published private(set) var phase: Phase = .idle
     @Published private(set) var session: Session = .today
     @Published private(set) var sessionTitle: String?
     @Published private(set) var tries = 0
     @Published private(set) var missed: Set<String> = []
     /// What the phone heard on the last try, shown under the sentence.
     @Published private(set) var heard = ""
+    @Published private(set) var listenError: String?
     @Published private(set) var starsToday = 0
     @Published var paused = false
 
@@ -52,12 +95,16 @@ final class CoachModel: ObservableObject {
     private(set) var todayItems: [Item] = []
     private(set) var todayIndex = 0
 
+    private var loop: Task<Void, Never>?
+    private weak var store: LearningStore?
+    private var config: AppConfig?
+
     var current: Item? { items.indices.contains(index) ? items[index] : nil }
     var progress: Double {
         guard !items.isEmpty else { return 0 }
         let done: Int
         switch stage {
-        case .passed, .gaveUp, .finished: done = index + 1
+        case .passed, .finished: done = index + 1
         default: done = index
         }
         return min(1, Double(done) / Double(items.count))
@@ -73,6 +120,8 @@ final class CoachModel: ObservableObject {
 
     /// Builds today's plan once per day, so leaving and coming back resumes where she was.
     func prepareIfNeeded(store: LearningStore, config: AppConfig) {
+        self.store = store
+        self.config = config
         let parts = Calendar.current.dateComponents([.year, .month, .day], from: Date())
         let today = "\(parts.year ?? 0)-\(parts.month ?? 0)-\(parts.day ?? 0)"
         guard preparedDay != today else { return }
@@ -84,6 +133,9 @@ final class CoachModel: ObservableObject {
         startedAt = nil
         showOverview()
     }
+
+    /// Keeps the latest settings (e.g. strict pronunciation) for checking.
+    func update(config: AppConfig) { self.config = config }
 
     // MARK: Starting
 
@@ -132,7 +184,7 @@ final class CoachModel: ObservableObject {
 
     /// Back to the 学英语 start screen. Today's lesson keeps its place.
     func showOverview() {
-        Speaker.shared.stop()
+        stopLoop()
         session = .today
         sessionTitle = nil
         items = todayItems
@@ -146,90 +198,59 @@ final class CoachModel: ObservableObject {
         missed = []
         heard = ""
         stage = .ready
-        playModel()
+        practise(.intro)
     }
 
+    // MARK: Controls
+
+    /// 听一遍 / 慢慢听. While practising, she hears it and then 小A listens again.
     func playModel(slow: Bool = false) {
-        guard let phrase = current?.phrase else { return }
-        Speaker.shared.speakEnglish(phrase.en, slow: slow)
-    }
-
-    /// The phone is working out what she said (shown while a slower check runs).
-    func showChecking() {
-        stage = .checking
-    }
-
-    // MARK: Checking
-
-    func evaluate(heard rawHeard: String, store: LearningStore, config: AppConfig) async {
-        guard let item = current else { return }
-        var clean = rawHeard.trimmingCharacters(in: .whitespacesAndNewlines)
-        if Demo.isOn && clean.isEmpty {
-            clean = Demo.heard(for: item.phrase.en, attempt: tries + 1)
-        }
-        tries += 1
-        heard = clean
-
-        if clean.isEmpty {
-            print("[XA] Learn: \"\(item.phrase.en)\" try \(tries): heard nothing")
-            if tries >= Self.maxTries {
-                giveUp(item, store: store)
-                return
-            }
-            stage = .retry(tip: "我没听清。按住橙色按钮，看到“正在听”再说，说完再松开。", close: false)
-            Speaker.shared.speakChinese("我没听清，按住按钮，大声一点再说一次。")
+        guard current != nil else { return }
+        if case .passed = stage {
+            stopLoop()
+            speak(.phrase(slow: slow))
             return
         }
-
-        let result = PronunciationCheck.score(target: item.phrase.en, heard: clean)
-        missed = Set(result.missed)
-        let passed = config.strictPronunciation ? result.missed.isEmpty : result.score >= 0.75
-        store.recordAttempt(item.phrase.id, passed: passed)
-        print(String(format: "[XA] Learn: \"%@\" try %ld: heard \"%@\" — %.0f%%%@", item.phrase.en, tries, clean,
-                     result.score * 100, passed ? " PASS" : " (missed: \(result.missed.joined(separator: ", ")))"))
-
-        if passed {
-            let stars = tries == 1 ? 3 : (tries == 2 ? 2 : 1)
-            starsToday += stars
-            stage = .passed(stars: stars)
-            store.finishPhrase(item.phrase.id, passed: true, triesToday: tries)
-            Haptics.success()
-            Speaker.shared.speakChinese(["太棒了！", "说得真好！", "很清楚！", "好极了！"].randomElement()!)
-            return
-        }
-
-        if tries >= Self.maxTries {
-            giveUp(item, store: store)
-            return
-        }
-
-        stage = .checking
-        let tip = await Self.tip(for: item.phrase, heard: clean, missed: result.missed, attempt: tries)
-        guard current?.id == item.id else { return }
-        stage = .retry(tip: tip, close: result.score >= 0.5)
-        // After the second miss, follow the tip with a slow model reading.
-        Speaker.shared.speakSequence([
-            (tip, "zh-CN", Speaker.normalRate),
-            (item.phrase.en, "en-US", tries >= 2 ? Speaker.slowRate : Speaker.normalRate)
-        ])
+        practise(.phrase(slow: slow))
     }
 
-    private func giveUp(_ item: Item, store: LearningStore) {
-        stage = .gaveUp
-        store.finishPhrase(item.phrase.id, passed: false, triesToday: tries)
-        Speaker.shared.speakChinese("你很努力了！这句以后再练，我们先学下一句。")
+    /// 开始跟读: start listening again after it stopped.
+    func resume() {
+        listenError = nil
+        practise(.phrase(slow: false))
+    }
+
+    func pause() {
+        stopLoop()
+        paused = true
+    }
+
+    func unpause() {
+        paused = false
+        if case .passed = stage { return }
+        practise(.phrase(slow: false))
+    }
+
+    /// Stops speaking and listening (leaving the screen, pausing, skipping).
+    func stopLoop() {
+        loop?.cancel()
+        loop = nil
+        listener.cancel()
+        Speaker.shared.stop()
+        phase = .idle
     }
 
     /// 跳过这句: move on now. A phrase she tried comes back in review; one she never tried stays new.
     func skip(store: LearningStore) {
         guard let item = current else { return }
-        Speaker.shared.stop()
+        stopLoop()
         if tries > 0 { store.finishPhrase(item.phrase.id, passed: false, triesToday: tries) }
         print("[XA] Learn: skipped \"\(item.phrase.en)\" after \(tries) tries")
         next(store: store)
     }
 
     func next(store: LearningStore) {
+        stopLoop()
         if index + 1 < items.count {
             index += 1
             if session == .today { todayIndex = index }
@@ -246,10 +267,146 @@ final class CoachModel: ObservableObject {
         }
     }
 
+    // MARK: - The practice loop
+
+    private enum Say {
+        /// 请跟我说 + the phrase.
+        case intro
+        case phrase(slow: Bool)
+        /// The tip, then the phrase (word by word first, after the second try).
+        case tip(String, slow: Bool)
+        /// 我在听 + the phrase.
+        case nudge
+    }
+
+    private func practise(_ first: Say) {
+        stopLoop()
+        guard let itemID = current?.id else { return }
+        listenError = nil
+        loop = Task { [weak self] in
+            await self?.run(first, itemID: itemID)
+        }
+    }
+
+    private func run(_ first: Say, itemID: String) async {
+        var say = first
+        var quietRounds = 0
+        while !Task.isCancelled && current?.id == itemID && !paused {
+            // 1. Say it, and wait until the phone is completely quiet.
+            phase = .speaking
+            speak(say)
+            await Speaker.shared.waitUntilDone()
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+
+            // 2. Listen until she has said something and paused.
+            phase = .listening
+            let result: String?
+            do {
+                result = try await listener.listenOnce(locale: "en-US")
+            } catch {
+                listenError = error.localizedDescription
+                phase = .idle
+                return
+            }
+            guard var text = result, !Task.isCancelled, current?.id == itemID else { return }
+
+            // Apple's recognizer heard nothing although she spoke: let OpenAI check the recording.
+            if text.isEmpty, listener.heardSound, let recording = listener.lastRecording,
+               let key = APIKeys.get(.openAI) {
+                phase = .checking
+                do {
+                    text = try await OpenAITranscribe.transcribe(recording, apiKey: key, language: "en")
+                    print("[XA] Learn: Apple heard nothing; OpenAI heard \"\(text)\"")
+                } catch {
+                    print("[XA] Learn: OpenAI check failed: \(error.localizedDescription)")
+                }
+                guard !Task.isCancelled, current?.id == itemID else { return }
+            }
+            if Demo.isOn && text.isEmpty, let phrase = current?.phrase {
+                text = Demo.heard(for: phrase.en, attempt: tries + 1)
+            }
+
+            if text.isEmpty {
+                quietRounds += 1
+                print("[XA] Learn: nothing heard (\(quietRounds))")
+                if quietRounds >= 2 {
+                    // She may have stepped away: stop and wait for 开始跟读.
+                    phase = .idle
+                    return
+                }
+                say = .nudge
+                continue
+            }
+            quietRounds = 0
+
+            // 3. Check it.
+            phase = .checking
+            guard let nextSay = await check(text, itemID: itemID) else {
+                phase = .idle
+                return
+            }
+            say = nextSay
+        }
+    }
+
+    /// Scores one try. Nil when she got it (the loop ends); otherwise what to say next.
+    private func check(_ text: String, itemID: String) async -> Say? {
+        guard let item = current, let store else { return nil }
+        tries += 1
+        heard = text
+        let result = PronunciationCheck.score(target: item.phrase.en, heard: text)
+        missed = Set(result.missed)
+        let strict = config?.strictPronunciation ?? false
+        let passed = strict ? result.missed.isEmpty : result.score >= 0.75
+        store.recordAttempt(item.phrase.id, passed: passed)
+        print(String(format: "[XA] Learn: \"%@\" try %ld: heard \"%@\" — %.0f%%%@", item.phrase.en, tries, text,
+                     result.score * 100, passed ? " PASS" : " (missed: \(result.missed.joined(separator: ", ")))"))
+
+        if passed {
+            let stars = tries == 1 ? 3 : (tries <= 3 ? 2 : 1)
+            starsToday += stars
+            stage = .passed(stars: stars)
+            store.finishPhrase(item.phrase.id, passed: true, triesToday: tries)
+            Haptics.success()
+            let praise = ["太棒了！", "说得真好！", "很清楚！", "好极了！"].randomElement()!
+            Speaker.shared.speakChinese(praise + "准备好了就点“下一句”。")
+            return nil
+        }
+
+        stage = .checking
+        let tip = await Self.tip(for: item.phrase, heard: text, missed: result.missed, attempt: tries)
+        guard current?.id == itemID else { return nil }
+        stage = .retry(tip: tip, close: result.score >= 0.5)
+        return .tip(tip, slow: tries >= 2)
+    }
+
+    private func speak(_ say: Say) {
+        guard let phrase = current?.phrase else { return }
+        typealias Part = (text: String, language: String, rate: Float)
+        func chinese(_ text: String) -> Part { (text, "zh-CN", Speaker.normalRate) }
+        let rate = LearnSpeed.current.rate
+        let wordRate = max(0.26, rate - 0.06)
+        let english: [Part] = [(phrase.en, "en-US", rate)]
+        let words: [Part] = Speaker.shared.wordByWord(phrase.en, rate: wordRate)
+        var parts: [Part] = []
+        switch say {
+        case .intro:
+            parts = [chinese("请跟我说：")] + english
+        case .phrase(let slow):
+            parts = slow ? words + english : english
+        case .tip(let tip, let slow):
+            parts = [chinese(tip), chinese("再听一遍：")] + (slow ? words : []) + english
+        case .nudge:
+            parts = [chinese("我在听呢，你跟我说：")] + english
+        }
+        Speaker.shared.speakSequence(parts)
+    }
+
     // MARK: - Tips
 
     private static func tip(for phrase: Phrase, heard: String, missed: [String], attempt: Int) async -> String {
-        let fallback = missed.first.map { "注意“\(PronunciationCheck.asWritten($0, in: phrase.en))”这个词。先听一遍，再慢慢说。" }
+        let fallback = missed.first.map { "注意“\(PronunciationCheck.asWritten($0, in: phrase.en))”这个词。慢慢说，每个词都说清楚。" }
             ?? "很接近了！再说一次。"
         guard let client = try? ClaudeClient() else { return fallback }
         let system = "你是一位耐心、温暖的英语发音老师。学生是一位中国妈妈，英语零基础。"

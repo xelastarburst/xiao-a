@@ -19,7 +19,9 @@ final class SpeechListener: ObservableObject {
     /// The last press, recorded, so another recognizer can try when Apple's hears nothing.
     private(set) var lastRecording: URL?
 
-    private let engine = AVAudioEngine()
+    /// A fresh engine for every listen: one reused across the switches between speaking and
+    /// listening can end up handing over empty audio.
+    private var engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var waiter: CheckedContinuation<String, Never>?
@@ -28,6 +30,10 @@ final class SpeechListener: ObservableObject {
     /// error of the one before) are ignored, so they can't switch off the microphone mid-sentence.
     private var currentSession: UUID?
     private var recorder: TapRecorder?
+    private var levels = LevelWatch()
+
+    /// True if the microphone heard someone talking during the last listen.
+    var heardSound: Bool { levels.spoke }
 
     static func requestPermissions() async -> Bool {
         let speech: Bool = await withCheckedContinuation { cont in
@@ -57,9 +63,12 @@ final class SpeechListener: ObservableObject {
         lastRecording = nil
 
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .duckOthers])
+        // Default mode, like the interpreter: on Mom's iPhone the measurement mode handed the
+        // app empty audio buffers.
+        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers])
         try session.setActive(true, options: .notifyOthersOnDeactivation)
 
+        engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw ListenError.unavailable }
@@ -75,17 +84,24 @@ final class SpeechListener: ObservableObject {
 
         let recorder = record ? TapRecorder(format: format) : nil
         self.recorder = recorder
+        let levels = LevelWatch()
+        self.levels = levels
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            guard buffer.frameLength > 0 else {
+                levels.countEmpty()
+                return
+            }
             req.append(buffer)
             recorder?.write(buffer)
+            levels.feed(buffer)
         }
         engine.prepare()
         try engine.start()
         isListening = true
         let sessionID = UUID()
         currentSession = sessionID
-        print("[SpeechListener] listening (\(locale), \(recognizer.isAvailable ? "recognizer ready" : "recognizer offline"))")
+        print("[SpeechListener] listening (\(locale), \(recognizer.isAvailable ? "recognizer ready" : "recognizer offline")), mic \(format)")
 
         task = recognizer.recognitionTask(with: req) { [weak self] result, error in
             let text = result?.bestTranscription.formattedString
@@ -111,6 +127,52 @@ final class SpeechListener: ObservableObject {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 60_000_000_000)
             if self.currentSession == sessionID && self.isListening { _ = await self.stop() }
+        }
+    }
+
+    /// Hands-free: opens the microphone, waits for her to speak, and returns what she said once
+    /// she pauses (`endPause`, generous because beginners pause between words).
+    /// Returns nil if cancelled, "" if nobody spoke within `waitForSpeech` seconds.
+    func listenOnce(locale: String, endPause: TimeInterval = 1.8, waitForSpeech: TimeInterval = 12) async throws -> String? {
+        if Demo.isOn {
+            startDemo()
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled, isListening else { return nil }
+            return stopDemo()
+        }
+        try await start(locale: locale, record: true)
+        guard isListening, let session = currentSession else { return nil }
+        let began = Date()
+        var lastText = ""
+        var lastChange = Date()
+        while true {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            if Task.isCancelled {
+                cancel()
+                return nil
+            }
+            guard currentSession == session, isListening else { return nil }
+            let now = Date()
+            if transcript != lastText {
+                lastText = transcript
+                lastChange = now
+            }
+            let hasWords = !transcript.isEmpty
+            guard levels.spoke || hasWords else {
+                if now.timeIntervalSince(began) > waitForSpeech {
+                    _ = await stop()
+                    return ""
+                }
+                continue
+            }
+            // Her last sound, or the last time the recognizer added a word, whichever is later.
+            let lastActivity = max(levels.lastLoud, hasWords ? lastChange : .distantPast)
+            let quiet = now.timeIntervalSince(lastActivity) > endPause
+            let wordsSettled = hasWords && now.timeIntervalSince(lastChange) > endPause + 1
+            let tooLong = now.timeIntervalSince(levels.firstLoud ?? began) > 20
+            if quiet || wordsSettled || tooLong {
+                return await stop()
+            }
         }
     }
 
@@ -160,6 +222,7 @@ final class SpeechListener: ObservableObject {
     }
 
     private func stopAudio() {
+        if isListening { print("[SpeechListener] stopped: \(levels.summary)") }
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
         isListening = false
@@ -177,6 +240,53 @@ final class SpeechListener: ObservableObject {
         if let waiter {
             self.waiter = nil
             waiter.resume(returning: transcript)
+        }
+    }
+}
+
+/// Notices when someone is talking: sound clearly above the room's background level.
+private final class LevelWatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var room: Float = 0.003
+    private var loudRun = 0
+    private var _firstLoud: Date?
+    private var _lastLoud = Date.distantPast
+
+    private var buffers = 0
+    private var empty = 0
+    private var loudest: Float = 0
+
+    var spoke: Bool { lock.lock(); defer { lock.unlock() }; return _firstLoud != nil }
+    var summary: String {
+        lock.lock(); defer { lock.unlock() }
+        return String(format: "%d buffers (%d empty), loudest %.3f, room %.4f, speech %@",
+                      buffers, empty, loudest, room, _firstLoud == nil ? "no" : "yes")
+    }
+
+    func countEmpty() {
+        lock.lock(); empty += 1; buffers += 1; lock.unlock()
+    }
+    var firstLoud: Date? { lock.lock(); defer { lock.unlock() }; return _firstLoud }
+    var lastLoud: Date { lock.lock(); defer { lock.unlock() }; return _lastLoud }
+
+    /// Audio thread.
+    func feed(_ buffer: AVAudioPCMBuffer) {
+        guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
+        let n = Int(buffer.frameLength)
+        var sum: Float = 0
+        for i in 0..<n { sum += samples[i] * samples[i] }
+        let level = (sum / Float(n)).squareRoot()
+        lock.lock(); defer { lock.unlock() }
+        buffers += 1
+        loudest = max(loudest, level)
+        // The room level follows quiet moments quickly and loud ones slowly.
+        room = level < room ? 0.8 * room + 0.2 * level : min(level, room * 1.002)
+        room = max(room, 0.0005)
+        loudRun = level > max(0.006, room * 3) ? loudRun + 1 : 0
+        if loudRun >= 2 {
+            let now = Date()
+            if _firstLoud == nil { _firstLoud = now }
+            _lastLoud = now
         }
     }
 }

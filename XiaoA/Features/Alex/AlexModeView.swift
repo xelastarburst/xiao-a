@@ -18,6 +18,7 @@ struct AlexModeView: View {
     @State private var pinStatus = ""
     @AppStorage("demoSound") private var demoSound = false
     @AppStorage(InterpreterVoice.momKey) private var voiceForMom = InterpreterVoice.defaultID
+    @AppStorage(LearnSpeed.key) private var learnSpeed = LearnSpeed.slow.rawValue
     @AppStorage(InterpreterVoice.othersKey) private var voiceForOthers = InterpreterVoice.defaultID
 
     private var reminderTime: Binding<Date> {
@@ -247,6 +248,11 @@ struct AlexModeView: View {
             Stepper("New phrases per day: \(store.config.newPhrasesPerDay)",
                     value: $store.config.newPhrasesPerDay, in: 2...10)
             Toggle("Strict pronunciation", isOn: $store.config.strictPronunciation)
+            Picker("English reading speed", selection: $learnSpeed) {
+                ForEach(LearnSpeed.allCases) { speed in
+                    Text(speed.label).tag(speed.rawValue)
+                }
+            }
             LabeledContent("Days completed", value: "\(learning.data.daysDone.count)")
             LabeledContent("Current streak", value: "\(learning.streak) days")
             LabeledContent("Phrases learned", value: "\(learning.masteredCount) of \(learning.allPhrases(for: store.config).count)")
@@ -262,7 +268,7 @@ struct AlexModeView: View {
         } header: {
             Text("Learning")
         } footer: {
-            Text("Normal: passes when speech recognition clearly understands her. Strict: every word must be recognized.")
+            Text("Lessons are hands-free: 小A reads the phrase, listens, and keeps coaching until she says it. Normal: passes when speech recognition clearly understands her. Strict: every word must be recognized.")
         }
     }
 
