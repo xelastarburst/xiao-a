@@ -58,7 +58,6 @@ final class TranscribeSocket {
                             // sound don't count (the phone also holds back room noise, see InterpreterAudio).
                             "turn_detection": [
                                 "type": "server_vad",
-                                "threshold": 0.6,
                                 "prefix_padding_ms": 300,
                                 "silence_duration_ms": 700
                             ]
