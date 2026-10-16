@@ -237,6 +237,7 @@ final class CoachModel: ObservableObject {
         loop = nil
         listener.cancel()
         Speaker.shared.stop()
+        AudioCoordinator.lessonActive = false
         phase = .idle
     }
 
@@ -282,6 +283,7 @@ final class CoachModel: ObservableObject {
     private func practise(_ first: Say) {
         stopLoop()
         guard let itemID = current?.id else { return }
+        AudioCoordinator.lessonActive = true
         listenError = nil
         loop = Task { [weak self] in
             await self?.run(first, itemID: itemID)
