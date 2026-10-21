@@ -9,9 +9,9 @@ import Translation
 /// Lives inside a `.translationTask` so the on-device session stays open while the camera is on.
 @MainActor
 final class TranslationEngine: ObservableObject {
-    @Published private(set) var cache: [String: String] = [:]
+    @Published var cache: [String: String] = [:]
     /// Claude's translations, made with everything else in view as context.
-    @Published private(set) var contextual: [String: String] = [:]
+    @Published var contextual: [String: String] = [:]
     @Published var needsDownload = false
     /// Claude is translating what's in view right now.
     @Published private(set) var refining = false
@@ -51,9 +51,8 @@ final class TranslationEngine: ObservableObject {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !refining, APIKeys.get(.anthropic) != nil else { continue }
             let missing = visible.filter { contextual[$0] == nil }
-            guard !missing.isEmpty,
-                  Date().timeIntervalSince(lastNewText) > 0.7,
-                  Date().timeIntervalSince(lastRefine) > 1.5 else { continue }
+            guard Self.shouldRefine(missing: missing.count, sinceNewText: Date().timeIntervalSince(lastNewText),
+                                    sinceLastRefine: Date().timeIntervalSince(lastRefine)) else { continue }
             refining = true
             lastRefine = Date()
             let texts = Array(visible.prefix(40))
@@ -69,6 +68,11 @@ final class TranslationEngine: ObservableObject {
             }
             refining = false
         }
+    }
+
+    /// Claude is asked only once the camera has rested on new text for 0.7 s, at most every 1.5 s.
+    static func shouldRefine(missing: Int, sinceNewText: TimeInterval, sinceLastRefine: TimeInterval) -> Bool {
+        missing > 0 && sinceNewText > 0.7 && sinceLastRefine > 1.5
     }
 
     /// Ask for translations of any lines we haven't seen yet.

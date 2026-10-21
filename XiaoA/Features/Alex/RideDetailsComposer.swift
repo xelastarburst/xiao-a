@@ -30,6 +30,11 @@ struct RideDetailsComposer: View {
     @State private var minutes = 3
 
     private var message: String {
+        Self.message(color: color, model: model, plate: plate, driver: driver, minutes: minutes)
+    }
+
+    /// The Chinese text Mom gets: car, plate, driver, minutes, and the plate check. Empty fields are left out.
+    static func message(color: CarColor, model: String, plate: String, driver: String, minutes: Int) -> String {
         var lines = ["【小A 叫车】车叫好啦！"]
         let car = [color.zh, model].filter { !$0.isEmpty }.joined(separator: " ")
         if !car.isEmpty { lines.append("车：\(car)") }

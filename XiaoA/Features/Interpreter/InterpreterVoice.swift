@@ -66,11 +66,11 @@ struct SpeechBooster {
         }
         let safe = peak > 0.0001 ? min(Self.maxGain, Self.ceiling / peak) : Self.maxGain
         let start = gain
-        // Down at once, so nothing clips; back up gently, about 1 dB per chunk.
+        // Down at once for the whole chunk, so nothing goes over the ceiling (a ramp down used to
+        // clip the chunk's first 5 ms); back up gently, about 1 dB per chunk, never above `safe`.
         let target = safe < start ? safe : min(safe, start * 1.12)
-        let ramp = target < start ? min(frames, 120) : frames
         for i in 0..<frames {
-            let g = i < ramp ? start + (target - start) * Float(i) / Float(ramp) : target
+            let g = target < start ? target : start + (target - start) * Float(i) / Float(frames)
             channel[i] = max(-1, min(1, channel[i] * g))
         }
         gain = target

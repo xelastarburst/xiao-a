@@ -19,12 +19,14 @@ struct LearningData: Codable {
 final class LearningStore: ObservableObject {
     @Published private(set) var data = LearningData()
 
-    private static var fileURL: URL {
+    nonisolated static var defaultFileURL: URL {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("XiaoA", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder.appendingPathComponent("learning.json")
     }
+
+    private let fileURL: URL
 
     private static let dayFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -34,8 +36,10 @@ final class LearningStore: ObservableObject {
         return f
     }()
 
-    init() {
-        if let raw = try? Data(contentsOf: Self.fileURL),
+    /// fileURL: where progress is saved (a temporary file in tests).
+    init(fileURL: URL = LearningStore.defaultFileURL) {
+        self.fileURL = fileURL
+        if let raw = try? Data(contentsOf: fileURL),
            let decoded = try? JSONDecoder().decode(LearningData.self, from: raw) {
             data = decoded
         }
@@ -48,10 +52,12 @@ final class LearningStore: ObservableObject {
     var doneToday: Bool { data.daysDone.contains(Self.dayFormatter.string(from: Date())) }
 
     /// Consecutive days with a finished lesson, counting today or yesterday as the latest.
-    var streak: Int {
+    var streak: Int { streak(asOf: Date()) }
+
+    func streak(asOf now: Date) -> Int {
         let done = Set(data.daysDone)
         let cal = Calendar.current
-        var day = Date()
+        var day = now
         if !done.contains(Self.dayFormatter.string(from: day)) {
             guard let yesterday = cal.date(byAdding: .day, value: -1, to: day),
                   done.contains(Self.dayFormatter.string(from: yesterday)) else { return 0 }
@@ -110,8 +116,8 @@ final class LearningStore: ObservableObject {
         save()
     }
 
-    func markDayDone() {
-        let today = Self.dayFormatter.string(from: Date())
+    func markDayDone(on date: Date = Date()) {
+        let today = Self.dayFormatter.string(from: date)
         if !data.daysDone.contains(today) {
             data.daysDone.append(today)
             save()
@@ -120,6 +126,6 @@ final class LearningStore: ObservableObject {
 
     private func save() {
         guard let raw = try? JSONEncoder().encode(data) else { return }
-        try? raw.write(to: Self.fileURL, options: [.atomic])
+        try? raw.write(to: fileURL, options: [.atomic])
     }
 }

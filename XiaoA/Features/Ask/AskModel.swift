@@ -93,6 +93,11 @@ final class AskModel: ObservableObject {
     }
 
     private func buildMessages() -> [[String: Any]] {
+        Self.messages(turns: turns, imageBlock: imageBlock)
+    }
+
+    /// The conversation for Claude: the photo goes with her first question only; empty turns are dropped.
+    static func messages(turns: [Turn], imageBlock: [String: Any]?) -> [[String: Any]] {
         var messages: [[String: Any]] = []
         var attachedImage = false
         for turn in turns where !turn.text.isEmpty {

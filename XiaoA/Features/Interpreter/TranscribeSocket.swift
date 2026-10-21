@@ -4,7 +4,7 @@ import Foundation
 /// phone's microphone, decides on its own when each person has finished a sentence (server voice
 /// activity detection), and sends back exactly what was said, in the language it was said in.
 final class TranscribeSocket {
-    enum Event {
+    enum Event: Equatable {
         case ready
         /// Someone started talking (the audio position, in ms since the session began).
         case speechStarted(item: String, atMs: Int)
@@ -46,25 +46,7 @@ final class TranscribeSocket {
             let task = session.webSocketTask(with: request)
             self.task = task
             task.resume()
-            sendOnQueue([
-                "type": "session.update",
-                "session": [
-                    "type": "transcription",
-                    "audio": [
-                        "input": [
-                            "format": ["type": "audio/pcm", "rate": 24_000],
-                            "transcription": ["model": model, "prompt": prompt],
-                            // A sentence ends after 0.7 s of quiet; short "um"s and soft background
-                            // sound don't count (the phone also holds back room noise, see InterpreterAudio).
-                            "turn_detection": [
-                                "type": "server_vad",
-                                "prefix_padding_ms": 300,
-                                "silence_duration_ms": 700
-                            ]
-                        ]
-                    ]
-                ]
-            ])
+            sendOnQueue(Self.sessionUpdate(model: model, prompt: prompt))
             receive(on: task)
         }
     }
@@ -83,6 +65,57 @@ final class TranscribeSocket {
             closing = true
             task?.cancel(with: .normalClosure, reason: nil)
             task = nil
+        }
+    }
+
+    /// The settings sent when the session opens. OpenAI has rejected extra keys here twice
+    /// (`noise_reduction`, then `turn_detection.threshold`), so a test pins this shape exactly.
+    static func sessionUpdate(model: String, prompt: String) -> [String: Any] {
+        [
+            "type": "session.update",
+            "session": [
+                "type": "transcription",
+                "audio": [
+                    "input": [
+                        "format": ["type": "audio/pcm", "rate": 24_000],
+                        "transcription": ["model": model, "prompt": prompt],
+                        // A sentence ends after 0.7 s of quiet (the phone also holds back room
+                        // noise, see InterpreterAudio).
+                        "turn_detection": [
+                            "type": "server_vad",
+                            "prefix_padding_ms": 300,
+                            "silence_duration_ms": 700
+                        ]
+                    ]
+                ]
+            ]
+        ]
+    }
+
+    /// One message from the server, as an event (nil for messages the app doesn't use).
+    static func event(from text: String) -> Event? {
+        guard let data = text.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = obj["type"] as? String else { return nil }
+        let item = obj["item_id"] as? String ?? ""
+        switch type {
+        case "session.created", "session.updated", "transcription_session.created", "transcription_session.updated":
+            return .ready
+        case "input_audio_buffer.speech_started":
+            return .speechStarted(item: item, atMs: obj["audio_start_ms"] as? Int ?? 0)
+        case "input_audio_buffer.speech_stopped":
+            return .speechStopped(item: item, atMs: obj["audio_end_ms"] as? Int ?? 0)
+        case "conversation.item.input_audio_transcription.delta":
+            guard let delta = obj["delta"] as? String else { return nil }
+            return .partial(item: item, text: delta)
+        case "conversation.item.input_audio_transcription.completed":
+            return .sentence(item: item, text: obj["transcript"] as? String ?? "")
+        case "conversation.item.input_audio_transcription.failed":
+            return .serverError((obj["error"] as? [String: Any])?["message"] as? String ?? "transcription failed")
+        case "error":
+            return .serverError((obj["error"] as? [String: Any])?["message"] as? String ?? "error")
+        default:
+            return nil
         }
     }
 
@@ -120,33 +153,12 @@ final class TranscribeSocket {
     }
 
     private func handle(_ text: String) {
-        guard let data = text.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = obj["type"] as? String else { return }
-        if seenTypes.insert(type).inserted {
+        if let data = text.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let type = obj["type"] as? String, seenTypes.insert(type).inserted {
             print("[TranscribeSocket \(model)] first \(type)")
         }
-        let item = obj["item_id"] as? String ?? ""
-        switch type {
-        case "session.created", "session.updated", "transcription_session.created", "transcription_session.updated":
-            emit(.ready)
-        case "input_audio_buffer.speech_started":
-            emit(.speechStarted(item: item, atMs: obj["audio_start_ms"] as? Int ?? 0))
-        case "input_audio_buffer.speech_stopped":
-            emit(.speechStopped(item: item, atMs: obj["audio_end_ms"] as? Int ?? 0))
-        case "conversation.item.input_audio_transcription.delta":
-            if let delta = obj["delta"] as? String { emit(.partial(item: item, text: delta)) }
-        case "conversation.item.input_audio_transcription.completed":
-            emit(.sentence(item: item, text: obj["transcript"] as? String ?? ""))
-        case "conversation.item.input_audio_transcription.failed":
-            let message = (obj["error"] as? [String: Any])?["message"] as? String ?? "transcription failed"
-            emit(.serverError(message))
-        case "error":
-            let message = (obj["error"] as? [String: Any])?["message"] as? String ?? "error"
-            emit(.serverError(message))
-        default:
-            break
-        }
+        if let event = Self.event(from: text) { emit(event) }
     }
 
     private func emit(_ event: Event) {
@@ -166,10 +178,11 @@ final class TranscribeSocket {
 /// OpenAI text-to-speech, streamed: the first words play while the rest is still arriving.
 enum OpenAISpeech {
     static let model = "gpt-4o-mini-tts"
+    /// Audio is handed on in chunks of this many bytes (100 ms of 24 kHz PCM16).
+    static let chunkBytes = 4800
 
-    /// Calls `onAudio` with 24 kHz mono PCM16 chunks (~100 ms each) as they arrive.
-    static func speak(_ text: String, apiKey: String, voice: String, chinese: Bool,
-                      onAudio: @escaping (Data) async -> Void) async throws {
+    /// The speech request: model, voice, raw PCM, and how to speak for each side.
+    static func request(_ text: String, apiKey: String, voice: String, chinese: Bool) throws -> URLRequest {
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/speech")!)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
@@ -188,6 +201,13 @@ enum OpenAISpeech {
             "response_format": "pcm"
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Calls `onAudio` with 24 kHz mono PCM16 chunks (~100 ms each) as they arrive.
+    static func speak(_ text: String, apiKey: String, voice: String, chinese: Bool,
+                      onAudio: @escaping (Data) async -> Void) async throws {
+        let request = try request(text, apiKey: apiKey, voice: voice, chinese: chinese)
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else {
@@ -196,19 +216,39 @@ enum OpenAISpeech {
             throw NSError(domain: "XiaoA.TTS", code: status,
                           userInfo: [NSLocalizedDescriptionKey: String(decoding: data, as: UTF8.self)])
         }
-        var buffer = Data()
-        buffer.reserveCapacity(4800)
+        var chunker = PCMChunker()
         for try await byte in bytes {
-            buffer.append(byte)
-            if buffer.count >= 4800 {
-                await onAudio(buffer)
-                buffer = Data()
-                buffer.reserveCapacity(4800)
-            }
+            if let chunk = chunker.add(byte) { await onAudio(chunk) }
         }
-        if buffer.count >= 2 {
-            if buffer.count % 2 == 1 { buffer.removeLast() }
-            await onAudio(buffer)
-        }
+        if let last = chunker.finish() { await onAudio(last) }
+    }
+}
+
+/// Cuts a byte stream of 16-bit samples into fixed-size chunks; the last chunk keeps whole samples only.
+struct PCMChunker {
+    private var buffer = Data()
+    let size: Int
+
+    init(size: Int = OpenAISpeech.chunkBytes) {
+        self.size = size
+        buffer.reserveCapacity(size)
+    }
+
+    /// Returns a full chunk when one is ready.
+    mutating func add(_ byte: UInt8) -> Data? {
+        buffer.append(byte)
+        guard buffer.count >= size else { return nil }
+        let chunk = buffer
+        buffer = Data()
+        buffer.reserveCapacity(size)
+        return chunk
+    }
+
+    /// Whatever is left, trimmed to whole samples (nil if less than one sample).
+    mutating func finish() -> Data? {
+        guard buffer.count >= 2 else { return nil }
+        if buffer.count % 2 == 1 { buffer.removeLast() }
+        defer { buffer = Data() }
+        return buffer
     }
 }

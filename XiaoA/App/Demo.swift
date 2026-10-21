@@ -6,7 +6,8 @@ import SwiftUI
 /// tried and reviewed on a Mac. It is never on for a build installed on a real iPhone.
 enum Demo {
     #if DEBUG && targetEnvironment(simulator)
-    static let isOn = true
+    /// On in the simulator, except under unit tests, which exercise the real code paths.
+    static let isOn = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
     #else
     static let isOn = false
     #endif

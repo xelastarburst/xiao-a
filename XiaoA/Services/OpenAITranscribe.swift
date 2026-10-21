@@ -8,16 +8,7 @@ enum OpenAITranscribe {
     static func transcribe(_ file: URL, apiKey: String, language: String) async throws -> String {
         let audio = try Data(contentsOf: file)
         let boundary = "xiaoa-\(UUID().uuidString)"
-        var body = Data()
-        func field(_ name: String, _ value: String) {
-            body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".data(using: .utf8)!)
-        }
-        field("model", model)
-        field("language", language)
-        field("response_format", "json")
-        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"try.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
-        body.append(audio)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        let body = multipartBody(audio: audio, boundary: boundary, language: language)
 
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/transcriptions")!)
         request.httpMethod = "POST"
@@ -32,5 +23,20 @@ enum OpenAITranscribe {
                           userInfo: [NSLocalizedDescriptionKey: String(decoding: data.prefix(300), as: UTF8.self)])
         }
         return (json["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The upload: model, language and JSON reply as fields, then the WAV file.
+    static func multipartBody(audio: Data, boundary: String, language: String) -> Data {
+        var body = Data()
+        func field(_ name: String, _ value: String) {
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
+        }
+        field("model", model)
+        field("language", language)
+        field("response_format", "json")
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"try.wav\"\r\nContent-Type: audio/wav\r\n\r\n".utf8))
+        body.append(audio)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        return body
     }
 }

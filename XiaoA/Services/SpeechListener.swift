@@ -22,13 +22,20 @@ final class SpeechListener: ObservableObject {
     /// A fresh engine for every listen: one reused across the switches between speaking and
     /// listening can end up handing over empty audio.
     private var engine = AVAudioEngine()
+    /// Whether this engine's microphone was opened. Stopping never touches the mic otherwise:
+    /// just asking for the input node starts up the audio hardware.
+    private var tapInstalled = false
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var waiter: CheckedContinuation<String, Never>?
     private var startPending = false
     /// Changes with every press. Results and errors from an earlier press (e.g. the "cancelled"
     /// error of the one before) are ignored, so they can't switch off the microphone mid-sentence.
-    private var currentSession: UUID?
+    private(set) var currentSession: UUID?
+
+    /// Default mode, like the interpreter: on Mom's iPhone the measurement mode handed the app
+    /// empty audio buffers.
+    static let sessionMode: AVAudioSession.Mode = .default
     private var recorder: TapRecorder?
     private var levels = LevelWatch()
 
@@ -63,9 +70,7 @@ final class SpeechListener: ObservableObject {
         lastRecording = nil
 
         let session = AVAudioSession.sharedInstance()
-        // Default mode, like the interpreter: on Mom's iPhone the measurement mode handed the
-        // app empty audio buffers.
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers])
+        try session.setCategory(.playAndRecord, mode: Self.sessionMode, options: [.defaultToSpeaker, .duckOthers])
         try session.setActive(true, options: .notifyOthersOnDeactivation)
 
         engine = AVAudioEngine()
@@ -96,6 +101,7 @@ final class SpeechListener: ObservableObject {
             recorder?.write(buffer)
             levels.feed(buffer)
         }
+        tapInstalled = true
         engine.prepare()
         try engine.start()
         isListening = true
@@ -106,20 +112,9 @@ final class SpeechListener: ObservableObject {
         task = recognizer.recognitionTask(with: req) { [weak self] result, error in
             let text = result?.bestTranscription.formattedString
             let done = error != nil || (result?.isFinal ?? false)
+            let message = error?.localizedDescription
             Task { @MainActor in
-                guard let self, self.currentSession == sessionID else { return }
-                if let text { self.transcript = text }
-                if let error, text == nil, self.transcript.isEmpty {
-                    print("[SpeechListener] recognizer error: \(error.localizedDescription)")
-                }
-                guard done else { return }
-                if self.isListening {
-                    // The recognizer gave up (e.g. offline) while she is still talking: keep
-                    // recording, so the recording can still be checked when she lets go.
-                    self.task = nil
-                } else {
-                    self.finish()
-                }
+                self?.received(text: text, error: message, done: done, session: sessionID)
             }
         }
 
@@ -127,6 +122,24 @@ final class SpeechListener: ObservableObject {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 60_000_000_000)
             if self.currentSession == sessionID && self.isListening { _ = await self.stop() }
+        }
+    }
+
+    /// A result or error from the recognizer. Anything from an earlier press is ignored: the
+    /// previous press's "cancelled" error used to arrive late and switch off the new recording.
+    func received(text: String?, error: String?, done: Bool, session: UUID) {
+        guard currentSession == session else { return }
+        if let text { transcript = text }
+        if let error, text == nil, transcript.isEmpty {
+            print("[SpeechListener] recognizer error: \(error)")
+        }
+        guard done else { return }
+        if isListening {
+            // The recognizer gave up (e.g. offline) while she is still talking: keep
+            // recording, so the recording can still be checked when she lets go.
+            task = nil
+        } else {
+            finish()
         }
     }
 
@@ -142,9 +155,7 @@ final class SpeechListener: ObservableObject {
         }
         try await start(locale: locale, record: true)
         guard isListening, let session = currentSession else { return nil }
-        let began = Date()
-        var lastText = ""
-        var lastChange = Date()
+        var detector = TurnEndDetector(began: Date(), endPause: endPause, waitForSpeech: waitForSpeech)
         while true {
             try? await Task.sleep(nanoseconds: 100_000_000)
             if Task.isCancelled {
@@ -152,25 +163,14 @@ final class SpeechListener: ObservableObject {
                 return nil
             }
             guard currentSession == session, isListening else { return nil }
-            let now = Date()
-            if transcript != lastText {
-                lastText = transcript
-                lastChange = now
-            }
-            let hasWords = !transcript.isEmpty
-            guard levels.spoke || hasWords else {
-                if now.timeIntervalSince(began) > waitForSpeech {
-                    _ = await stop()
-                    return ""
-                }
+            switch detector.update(now: Date(), transcript: transcript, spoke: levels.spoke,
+                                   lastLoud: levels.lastLoud, firstLoud: levels.firstLoud) {
+            case .keepListening:
                 continue
-            }
-            // Her last sound, or the last time the recognizer added a word, whichever is later.
-            let lastActivity = max(levels.lastLoud, hasWords ? lastChange : .distantPast)
-            let quiet = now.timeIntervalSince(lastActivity) > endPause
-            let wordsSettled = hasWords && now.timeIntervalSince(lastChange) > endPause + 1
-            let tooLong = now.timeIntervalSince(levels.firstLoud ?? began) > 20
-            if quiet || wordsSettled || tooLong {
+            case .nobodySpoke:
+                _ = await stop()
+                return ""
+            case .done:
                 return await stop()
             }
         }
@@ -212,6 +212,17 @@ final class SpeechListener: ObservableObject {
         }
     }
 
+    #if DEBUG
+    /// Tests: pretend a press is in progress, without a microphone.
+    func beginPressForTests() -> UUID {
+        let id = UUID()
+        currentSession = id
+        isListening = true
+        transcript = ""
+        return id
+    }
+    #endif
+
     func cancel() {
         currentSession = nil
         stopAudio()
@@ -224,7 +235,10 @@ final class SpeechListener: ObservableObject {
     private func stopAudio() {
         if isListening { print("[SpeechListener] stopped: \(levels.summary)") }
         if engine.isRunning { engine.stop() }
-        engine.inputNode.removeTap(onBus: 0)
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
         isListening = false
         AudioCoordinator.listening = false
         if let recorder {
@@ -241,6 +255,44 @@ final class SpeechListener: ObservableObject {
             self.waiter = nil
             waiter.resume(returning: transcript)
         }
+    }
+}
+
+/// Decides when she has finished a try: after a pause, once the recognizer's words stop changing,
+/// or at a hard cap. Gives up if nobody speaks at all.
+struct TurnEndDetector {
+    enum Decision: Equatable { case keepListening, done, nobodySpoke }
+
+    let began: Date
+    var endPause: TimeInterval = 1.8
+    var waitForSpeech: TimeInterval = 12
+    var cap: TimeInterval = 20
+    private var lastText = ""
+    private var lastChange: Date
+
+    init(began: Date, endPause: TimeInterval = 1.8, waitForSpeech: TimeInterval = 12, cap: TimeInterval = 20) {
+        self.began = began
+        self.endPause = endPause
+        self.waitForSpeech = waitForSpeech
+        self.cap = cap
+        lastChange = began
+    }
+
+    mutating func update(now: Date, transcript: String, spoke: Bool, lastLoud: Date, firstLoud: Date?) -> Decision {
+        if transcript != lastText {
+            lastText = transcript
+            lastChange = now
+        }
+        let hasWords = !transcript.isEmpty
+        guard spoke || hasWords else {
+            return now.timeIntervalSince(began) > waitForSpeech ? .nobodySpoke : .keepListening
+        }
+        // Her last sound, or the last time the recognizer added a word, whichever is later.
+        let lastActivity = max(lastLoud, hasWords ? lastChange : .distantPast)
+        let quiet = now.timeIntervalSince(lastActivity) > endPause
+        let wordsSettled = hasWords && now.timeIntervalSince(lastChange) > endPause + 1
+        let tooLong = now.timeIntervalSince(firstLoud ?? began) > cap
+        return quiet || wordsSettled || tooLong ? .done : .keepListening
     }
 }
 

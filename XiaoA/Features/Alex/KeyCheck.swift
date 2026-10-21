@@ -27,10 +27,14 @@ enum KeyCheck {
     }
 
     private static func candidates(_ kind: APIKeys.Kind) -> [(String, String)] {
+        candidates(saved: APIKeys.keychainValue(kind), builtIn: APIKeys.builtIn(kind))
+    }
+
+    /// The keys to test: the phone's own and the built-in one, once each if they are the same.
+    static func candidates(saved: String?, builtIn: String?) -> [(String, String)] {
         var list: [(String, String)] = []
-        let saved = APIKeys.keychainValue(kind)
         if let saved { list.append(("saved on this iPhone", saved)) }
-        if let builtIn = APIKeys.builtIn(kind), builtIn != saved { list.append(("built into the app", builtIn)) }
+        if let builtIn, builtIn != saved { list.append(("built into the app", builtIn)) }
         return list
     }
 
@@ -81,7 +85,7 @@ enum KeyCheck {
     }
 
     /// The service's own error message (they never repeat the full key).
-    private static func message(from data: Data) -> String {
+    static func message(from data: Data) -> String {
         if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let error = object["error"] as? [String: Any],
            let text = error["message"] as? String {

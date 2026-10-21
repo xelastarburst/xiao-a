@@ -18,6 +18,7 @@ enum PronunciationCheck {
         var missed: [String] = []
         for (i, word) in want.enumerated() {
             if gotSet.contains(word) { continue }
+            if gotSet.contains(word + "s") { continue }                       // "son's" written as "sons"
             if word.count >= 4 && joined.contains(word) { continue }          // "rest room" vs "restroom"
             if word.count >= 5 && got.contains(where: { distance($0, word) <= 1 }) { continue }
             missed.append(wantRaw[i])                                         // report the word as written

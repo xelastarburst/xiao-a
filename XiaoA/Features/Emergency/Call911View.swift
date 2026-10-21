@@ -50,7 +50,7 @@ struct Call911View: View {
 
                 BigButton(title: "现在拨打 911", systemImage: "phone.fill",
                           fill: Palette.red, depth: Palette.redDeep, height: 88, fontSize: 30) {
-                    if practice { practiceNote = true } else { Phone.call("911") }
+                    practiceNote = EmergencyActions.call911(practice: practice)
                 }
                 .padding(.top, 4)
 

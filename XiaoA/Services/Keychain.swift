@@ -11,7 +11,9 @@ enum APIKeys {
     private static let service = "com.alexqi.xiaoa.apikeys"
 
     static func get(_ kind: Kind) -> String? {
-        keychainValue(kind) ?? bundled[kind]
+        // UI tests run the app with no keys at all, so nothing is ever sent anywhere.
+        if ProcessInfo.processInfo.arguments.contains("-noKeys") { return nil }
+        return keychainValue(kind) ?? bundled[kind]
     }
 
     /// The key built into this build (BundledKeys.json), if any.
@@ -58,9 +60,16 @@ enum APIKeys {
     /// Keys from BundledKeys.json in the app, read once. Empty if the file is missing or blank.
     private static let bundled: [Kind: String] = {
         guard let url = Bundle.main.url(forResource: "BundledKeys", withExtension: "json"),
-              var text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
-        // TextEdit may have turned the straight quotes into curly ones.
-        text = text.replacingOccurrences(of: "\u{201C}", with: "\"").replacingOccurrences(of: "\u{201D}", with: "\"")
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        let keys = parseBundled(text)
+        if !keys.isEmpty { print("[XA] using built-in keys: \(keys.keys.map(\.rawValue).sorted().joined(separator: ", "))") }
+        return keys
+    }()
+
+    /// Reads the keys file. Tolerates curly quotes (TextEdit) and stray spaces; ignores values too
+    /// short or with spaces inside (a placeholder, or half a paste); invalid JSON gives no keys.
+    static func parseBundled(_ raw: String) -> [Kind: String] {
+        let text = raw.replacingOccurrences(of: "\u{201C}", with: "\"").replacingOccurrences(of: "\u{201D}", with: "\"")
         guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
             print("[XA] BundledKeys.json isn't valid JSON; ignoring it")
             return [:]
@@ -70,7 +79,6 @@ enum APIKeys {
             let value = (object[kind.rawValue] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if value.count >= 20 && !value.contains(" ") { keys[kind] = value }
         }
-        if !keys.isEmpty { print("[XA] using built-in keys: \(keys.keys.map(\.rawValue).sorted().joined(separator: ", "))") }
         return keys
-    }()
+    }
 }

@@ -31,8 +31,7 @@ struct EmergencyView: View {
 
                 EmergencyRow(title: "打电话给 \(store.config.alexName)", subtitle: "马上接通", symbol: "phone.fill",
                              style: .teal) {
-                    if practice { practiceNote = "这里会直接打电话给 \(store.config.alexName)。" }
-                    else { Phone.call(store.config.alexPhone) }
+                    practiceNote = EmergencyActions.callAlex(practice: practice, config: store.config)
                 }
                 .disabled(store.config.alexPhone.isEmpty)
 
@@ -110,17 +109,12 @@ struct EmergencyView: View {
         locating = true
         Task {
             let location = await LocationService.shared.current()
-            var lines: [String] = [help ? "【小A】\(store.config.alexName)，我需要帮忙！" : "【小A】我现在在这里："]
-            if let location {
-                if let address = await LocationService.shared.address(for: location) {
-                    lines.append("地址：\(address)")
-                }
-                lines.append(LocationService.mapsLink(location))
-            } else {
-                lines.append("（找不到位置，请给我打电话）")
-            }
+            var address: String?
+            if let location { address = await LocationService.shared.address(for: location) }
+            let body = EmergencyActions.message(help: help, alexName: store.config.alexName, address: address,
+                                                mapsLink: location.map(LocationService.mapsLink))
             locating = false
-            app.text(store.config.alexPhone, body: lines.joined(separator: "\n")) { sent in
+            app.text(store.config.alexPhone, body: body) { sent in
                 if sent && !help { locationSent = true }
             }
         }
@@ -200,5 +194,36 @@ private struct EmergencyRow: View {
         case .outlineTeal: return Palette.mint
         case .outlineRed: return Palette.redSoft
         }
+    }
+}
+
+/// What the emergency buttons do, apart from the screen. Practice mode never dials or texts.
+@MainActor
+enum EmergencyActions {
+    /// Calls Alex, or in practice mode returns the note explaining what would happen.
+    static func callAlex(practice: Bool, config: AppConfig) -> String? {
+        if practice { return "这里会直接打电话给 \(config.alexName)。" }
+        Phone.call(config.alexPhone)
+        return nil
+    }
+
+    /// Dials 911, or in practice mode returns true (show the practice note) without dialling.
+    static func call911(practice: Bool) -> Bool {
+        if practice { return true }
+        Phone.call("911")
+        return false
+    }
+
+    /// The text to Alex: a call for help or "I'm here", the address and a map link when known,
+    /// otherwise a request to call her.
+    static func message(help: Bool, alexName: String, address: String?, mapsLink: String?) -> String {
+        var lines: [String] = [help ? "【小A】\(alexName)，我需要帮忙！" : "【小A】我现在在这里："]
+        if let mapsLink {
+            if let address { lines.append("地址：\(address)") }
+            lines.append(mapsLink)
+        } else {
+            lines.append("（找不到位置，请给我打电话）")
+        }
+        return lines.joined(separator: "\n")
     }
 }

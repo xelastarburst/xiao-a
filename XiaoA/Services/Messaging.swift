@@ -44,16 +44,22 @@ enum Phone {
         number.filter { "0123456789+".contains($0) }
     }
 
+    /// Opens a URL that dials or texts. Tests replace it to record instead.
+    static var open: (URL) -> Void = { UIApplication.shared.open($0) }
+
     static func call(_ number: String) {
         let d = digits(number)
         guard !d.isEmpty, let url = URL(string: "tel://\(d)") else { return }
-        UIApplication.shared.open(url)
+        open(url)
     }
 
     /// Fallback when the Messages sheet isn't available (e.g. the simulator).
     static func openSMS(to number: String, body: String) {
-        let encoded = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        // "&", "+", "=", "?" and "#" would end or change the body (e.g. an address with "&").
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?#")
+        let encoded = body.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
         guard let url = URL(string: "sms:\(digits(number))&body=\(encoded)") else { return }
-        UIApplication.shared.open(url)
+        open(url)
     }
 }

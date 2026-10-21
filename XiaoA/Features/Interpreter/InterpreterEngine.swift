@@ -62,7 +62,7 @@ final class InterpreterEngine: ObservableObject {
     private var speechEndedAt: [String: Date] = [:]
 
     /// Lines waiting to be said, in order. Translations can finish out of order; speech can't.
-    private var speakQueue: [UUID] = []
+    private var speakQueue = TurnQueue()
     private var speakingTurn = false
     /// The translated speech of recent lines, for "play again".
     private var spokenAudio: [UUID: [Data]] = [:]
@@ -240,13 +240,16 @@ final class InterpreterEngine: ObservableObject {
         case .serverError(let message):
             print("[XA] \(stamp(Date())) SERVER ERROR (transcription): \(message)")
             problem = message
-            let lower = message.lowercased()
-            if lower.contains("api key") || lower.contains("auth") {
+            switch Self.reaction(to: message, heardSentence: heardSentence,
+                                 modelIndex: modelIndex, modelCount: transcriptionModels.count) {
+            case .stopBadKey:
                 stop()
                 status = .failed("OpenAI 密钥不对。请让 Alex 在设置里检查。")
-            } else if !heardSentence, lower.contains("model"), modelIndex + 1 < transcriptionModels.count {
+            case .switchModel:
                 modelIndex += 1
                 connectTranscriber()
+            case .carryOn:
+                break
             }
         }
     }
@@ -263,9 +266,20 @@ final class InterpreterEngine: ObservableObject {
         lines.append(line)
         if lines.count > 80 { lines.removeFirst(lines.count - 80) }
         timing[line.id] = Timing(speechEnded: speechEndedAt[item])
-        speakQueue.append(line.id)
+        speakQueue.add(line.id)
         lastActivity = Date()
         Task { await translate(line.id) }
+    }
+
+    enum ServerErrorReaction: Equatable { case stopBadKey, switchModel, carryOn }
+
+    /// A wrong key stops; a model the account can't use is swapped for the backup, but only before
+    /// the first sentence (after that the model clearly works); anything else is shown and ignored.
+    static func reaction(to message: String, heardSentence: Bool, modelIndex: Int, modelCount: Int) -> ServerErrorReaction {
+        let lower = message.lowercased()
+        if lower.contains("api key") || lower.contains("auth") { return .stopBadKey }
+        if !heardSentence, lower.contains("model"), modelIndex + 1 < modelCount { return .switchModel }
+        return .carryOn
     }
 
     static func hasChinese(_ text: String) -> Bool {
@@ -287,20 +301,12 @@ final class InterpreterEngine: ObservableObject {
 
     private func translate(_ id: UUID) async {
         guard let i = lines.firstIndex(where: { $0.id == id }) else { return }
-        let line = lines[i]
-        let history = lines[..<i].filter { !$0.translated.isEmpty }.suffix(8)
-            .map { "\($0.fromMom ? "Mom" : "Other") said: \($0.original) → \($0.translated)" }
-            .joined(separator: "\n")
-        let target = line.fromMom ? partnerName : "Simplified Chinese (as used in mainland China)"
-        let who = line.fromMom ? "Mom (in Chinese)" : "the other person"
-        let message = (history.isEmpty ? "" : "Conversation so far:\n\(history)\n\n")
-            + "New line from \(who):\n\(line.original)\n\nTranslate the new line into \(target)."
+        let message = Self.translationMessage(for: lines[i], earlier: Array(lines[..<i]), partnerName: partnerName)
         do {
             let client = try ClaudeClient()
             let reply = try await client.complete(model: ClaudeClient.Model.vision, system: translatorPrompt,
                                                   messages: [["role": "user", "content": message]], maxTokens: 500)
-            let clean = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\"“”「」"))
+            let clean = Self.cleanTranslation(reply)
             guard let j = lines.firstIndex(where: { $0.id == id }) else { return }
             if clean.isEmpty { lines[j].failed = true } else { lines[j].translated = clean }
             timing[id]?.translated = Date()
@@ -310,6 +316,28 @@ final class InterpreterEngine: ObservableObject {
             if let j = lines.firstIndex(where: { $0.id == id }) { lines[j].failed = true }
         }
         speakNext()
+    }
+
+    /// What Claude is asked: the last 8 translated lines as context, then the new line and which
+    /// way to translate it. Mom's lines go into the other person's language, never back into hers.
+    static func translationMessage(for line: Line, earlier: [Line], partnerName: String) -> String {
+        let history = earlier.filter { !$0.translated.isEmpty }.suffix(8)
+            .map { "\($0.fromMom ? "Mom" : "Other") said: \($0.original) → \($0.translated)" }
+            .joined(separator: "\n")
+        let target = targetLanguage(fromMom: line.fromMom, partnerName: partnerName)
+        let who = line.fromMom ? "Mom (in Chinese)" : "the other person"
+        return (history.isEmpty ? "" : "Conversation so far:\n\(history)\n\n")
+            + "New line from \(who):\n\(line.original)\n\nTranslate the new line into \(target)."
+    }
+
+    static func targetLanguage(fromMom: Bool, partnerName: String) -> String {
+        fromMom ? partnerName : "Simplified Chinese (as used in mainland China)"
+    }
+
+    /// Claude's reply without surrounding spaces or quotes.
+    static func cleanTranslation(_ reply: String) -> String {
+        reply.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"“”「」"))
     }
 
     private var translatorPrompt: String {
@@ -329,21 +357,14 @@ final class InterpreterEngine: ObservableObject {
     // MARK: - Speaking, one turn at a time
 
     private func speakNext() {
-        guard isRunning, !speakingTurn, let id = speakQueue.first else { return }
-        guard let i = lines.firstIndex(where: { $0.id == id }) else {
-            speakQueue.removeFirst()
-            speakNext()
-            return
-        }
-        if lines[i].failed {
-            speakQueue.removeFirst()
-            speakNext()
-            return
-        }
-        guard !lines[i].translated.isEmpty else { return }   // still translating
-        speakQueue.removeFirst()
+        guard isRunning, !speakingTurn else { return }
+        let lines = self.lines
+        guard let id = speakQueue.next(state: { id in
+            guard let line = lines.first(where: { $0.id == id }) else { return .gone }
+            if line.failed { return .failed }
+            return line.translated.isEmpty ? .translating : .ready
+        }), let line = lines.first(where: { $0.id == id }) else { return }
         speakingTurn = true
-        let line = lines[i]
         Task {
             await speakAloud(line)
             speakingTurn = false
@@ -353,6 +374,7 @@ final class InterpreterEngine: ObservableObject {
     }
 
     private func speakAloud(_ line: Line) async {
+        // Mom's words are said in the other person's language; theirs in Chinese.
         let chinese = !line.fromMom
         let voice = line.fromMom ? InterpreterVoice.forMom : InterpreterVoice.forOthers
         do {
@@ -476,4 +498,31 @@ final class MicFeed: @unchecked Sendable {
         set { lock.lock(); _socket = newValue; lock.unlock() }
     }
     func send(_ chunk: Data) { socket?.append(pcm16: chunk) }
+}
+
+/// Lines waiting to be spoken, in the order they were said. Translations can finish out of order;
+/// speech can't. A failed line, or one that scrolled away, is skipped; every other line is spoken once.
+struct TurnQueue {
+    enum LineState { case ready, translating, failed, gone }
+
+    private(set) var waiting: [UUID] = []
+
+    mutating func add(_ id: UUID) { waiting.append(id) }
+    mutating func removeAll() { waiting.removeAll() }
+
+    /// The next line to say, if the oldest one waiting is translated. Nil while it still translates.
+    mutating func next(state: (UUID) -> LineState) -> UUID? {
+        while let id = waiting.first {
+            switch state(id) {
+            case .failed, .gone:
+                waiting.removeFirst()
+            case .translating:
+                return nil
+            case .ready:
+                waiting.removeFirst()
+                return id
+            }
+        }
+        return nil
+    }
 }

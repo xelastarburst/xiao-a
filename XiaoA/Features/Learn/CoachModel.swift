@@ -74,6 +74,12 @@ final class CoachModel: ObservableObject {
     static let suggestSkipAfter = 5
 
     let listener = SpeechListener()
+    /// Who reads aloud (a speaker with a fake engine in tests).
+    var speaker: Speaker = .shared
+    /// Tests: replaces the microphone with scripted tries.
+    var listenOverride: (() async throws -> String?)?
+    /// Tests: replaces the Claude tip.
+    var tipProvider: ((Phrase, String, [String], Int) async -> String)?
 
     @Published private(set) var items: [Item] = []
     @Published private(set) var index = 0
@@ -236,7 +242,7 @@ final class CoachModel: ObservableObject {
         loop?.cancel()
         loop = nil
         listener.cancel()
-        Speaker.shared.stop()
+        speaker.stop()
         AudioCoordinator.lessonActive = false
         phase = .idle
     }
@@ -260,9 +266,9 @@ final class CoachModel: ObservableObject {
             if session == .today {
                 todayIndex = items.count
                 store.markDayDone()
-                Speaker.shared.speakChinese("今天的课学完啦！你真棒！")
+                speaker.speakChinese("今天的课学完啦！你真棒！")
             } else {
-                Speaker.shared.speakChinese("这一组练完啦！你真棒！")
+                speaker.speakChinese("这一组练完啦！你真棒！")
             }
             stage = .finished
         }
@@ -297,7 +303,7 @@ final class CoachModel: ObservableObject {
             // 1. Say it, and wait until the phone is completely quiet.
             phase = .speaking
             speak(say)
-            await Speaker.shared.waitUntilDone()
+            await speaker.waitUntilDone()
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
 
@@ -305,7 +311,7 @@ final class CoachModel: ObservableObject {
             phase = .listening
             let result: String?
             do {
-                result = try await listener.listenOnce(locale: "en-US")
+                result = try await listenOnce()
             } catch {
                 listenError = error.localizedDescription
                 phase = .idle
@@ -360,24 +366,24 @@ final class CoachModel: ObservableObject {
         let result = PronunciationCheck.score(target: item.phrase.en, heard: text)
         missed = Set(result.missed)
         let strict = config?.strictPronunciation ?? false
-        let passed = strict ? result.missed.isEmpty : result.score >= 0.75
+        let passed = Self.passes(score: result.score, missedCount: result.missed.count, strict: strict)
         store.recordAttempt(item.phrase.id, passed: passed)
         print(String(format: "[XA] Learn: \"%@\" try %ld: heard \"%@\" — %.0f%%%@", item.phrase.en, tries, text,
                      result.score * 100, passed ? " PASS" : " (missed: \(result.missed.joined(separator: ", ")))"))
 
         if passed {
-            let stars = tries == 1 ? 3 : (tries <= 3 ? 2 : 1)
+            let stars = Self.stars(forTries: tries)
             starsToday += stars
             stage = .passed(stars: stars)
             store.finishPhrase(item.phrase.id, passed: true, triesToday: tries)
             Haptics.success()
             let praise = ["太棒了！", "说得真好！", "很清楚！", "好极了！"].randomElement()!
-            Speaker.shared.speakChinese(praise + "准备好了就点“下一句”。")
+            speaker.speakChinese(praise + "准备好了就点“下一句”。")
             return nil
         }
 
         stage = .checking
-        let tip = await Self.tip(for: item.phrase, heard: text, missed: result.missed, attempt: tries)
+        let tip = await (tipProvider ?? Self.tip)(item.phrase, text, result.missed, tries)
         guard current?.id == itemID else { return nil }
         stage = .retry(tip: tip, close: result.score >= 0.5)
         return .tip(tip, slow: tries >= 2)
@@ -390,7 +396,7 @@ final class CoachModel: ObservableObject {
         let rate = LearnSpeed.current.rate
         let wordRate = max(0.26, rate - 0.06)
         let english: [Part] = [(phrase.en, "en-US", rate)]
-        let words: [Part] = Speaker.shared.wordByWord(phrase.en, rate: wordRate)
+        let words: [Part] = speaker.wordByWord(phrase.en, rate: wordRate)
         var parts: [Part] = []
         switch say {
         case .intro:
@@ -402,7 +408,22 @@ final class CoachModel: ObservableObject {
         case .nudge:
             parts = [chinese("我在听呢，你跟我说：")] + english
         }
-        Speaker.shared.speakSequence(parts)
+        speaker.speakSequence(parts)
+    }
+
+    private func listenOnce() async throws -> String? {
+        if let listenOverride { return try await listenOverride() }
+        return try await listener.listenOnce(locale: "en-US")
+    }
+
+    /// Normal mode passes when the recognizer understood at least 75% of the words; strict needs all.
+    static func passes(score: Double, missedCount: Int, strict: Bool) -> Bool {
+        strict ? missedCount == 0 : score >= 0.75
+    }
+
+    /// 3 stars first time, 2 for the second or third try, 1 after that.
+    static func stars(forTries tries: Int) -> Int {
+        tries <= 1 ? 3 : (tries <= 3 ? 2 : 1)
     }
 
     // MARK: - Tips

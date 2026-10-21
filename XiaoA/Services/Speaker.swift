@@ -22,6 +22,17 @@ enum AudioCoordinator {
     }
 }
 
+/// What Speaker needs from a speech synthesizer (AVSpeechSynthesizer; a fake in tests).
+@MainActor
+protocol SpeechEngine: AnyObject {
+    var isSpeaking: Bool { get }
+    var delegate: AVSpeechSynthesizerDelegate? { get set }
+    func speak(_ utterance: AVSpeechUtterance)
+    @discardableResult func stopSpeaking(at boundary: AVSpeechBoundary) -> Bool
+}
+
+extension AVSpeechSynthesizer: SpeechEngine {}
+
 /// Reads text aloud on-device (works offline).
 @MainActor
 final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
@@ -33,21 +44,37 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     /// Lets the interpreter mute its microphone while 小A is talking.
     var onSpeakingChange: ((Bool) -> Void)?
 
-    private var synth = AVSpeechSynthesizer()
+    private let makeEngine: () -> SpeechEngine
+    private var synth: SpeechEngine
+    /// Speech that hasn't started after this long was dropped, and is asked for once more.
+    var retryAfter: TimeInterval = 3
     /// Utterances asked for and not yet finished. "Done" means this is empty, which works even
     /// when a voice takes a second or more to start (older iPhones, first use of a voice).
     private var pending = Set<ObjectIdentifier>()
     private var lastStart = Date.distantPast
     /// The last request, so speech that never starts can be asked for once more.
     private var lastRequest: (parts: [Part], gap: TimeInterval) = ([], 0)
+    /// When it was asked for: speech that started after this is under way and is never repeated.
+    private var requestedAt = Date.distantPast
+    /// Sets up the audio session before speaking (tests replace it: a fake voice needs no audio).
+    var preparePlayback: () -> Void = { AudioCoordinator.prepareForPlayback() }
 
     nonisolated static let normalRate: Float = 0.46
     nonisolated static let slowRate: Float = 0.34
 
-    override init() {
+    override convenience init() {
+        self.init(makeEngine: { AVSpeechSynthesizer() })
+    }
+
+    init(makeEngine: @escaping () -> SpeechEngine) {
+        self.makeEngine = makeEngine
+        synth = makeEngine()
         super.init()
         synth.delegate = self
     }
+
+    /// Sentences asked for and not yet finished.
+    var pendingCount: Int { pending.count }
 
     func speak(_ text: String, language: String, rate: Float = Speaker.normalRate) {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -71,8 +98,9 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
 
     private func start(_ parts: [Part], gap: TimeInterval) {
         interrupt()
-        AudioCoordinator.prepareForPlayback()
+        preparePlayback()
         lastRequest = (parts, gap)
+        requestedAt = Date()
         enqueue(parts, gap: gap)
     }
 
@@ -94,7 +122,7 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         if synth.isSpeaking || !pending.isEmpty {
             synth.delegate = nil
             synth.stopSpeaking(at: .immediate)
-            synth = AVSpeechSynthesizer()
+            synth = makeEngine()
             synth.delegate = self
         }
         pending.removeAll()
@@ -117,12 +145,12 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
                 try? await Task.sleep(nanoseconds: 250_000_000)
                 return
             }
-            if !retried && lastStart < asked && Date().timeIntervalSince(asked) > 3 {
+            if !retried && lastStart < requestedAt && Date().timeIntervalSince(asked) > retryAfter {
                 retried = true
-                print("[Speaker] speech didn't start within 3 s; asking again")
+                print("[Speaker] speech didn't start within \(retryAfter) s; asking again")
                 let request = lastRequest
                 interrupt()
-                AudioCoordinator.prepareForPlayback()
+                preparePlayback()
                 enqueue(request.parts, gap: request.gap)
             }
             try? await Task.sleep(nanoseconds: 100_000_000)
@@ -133,20 +161,22 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     /// The simulator demo keeps quiet (timing and callbacks unchanged) unless Alex turns sound on.
     private static var silent: Bool { Demo.isOn && !Demo.soundOn }
 
+    /// The best installed voice per language, looked up once (listing every voice is slow).
+    private static var voiceCache: [String: AVSpeechSynthesisVoice] = [:]
+
     private static func bestVoice(for language: String) -> AVSpeechSynthesisVoice? {
+        if let cached = voiceCache[language] { return cached }
         let voices = AVSpeechSynthesisVoice.speechVoices().filter { $0.language == language }
-        return voices.first(where: { $0.quality == .premium })
+        let best = voices.first(where: { $0.quality == .premium })
             ?? voices.first(where: { $0.quality == .enhanced })
             ?? AVSpeechSynthesisVoice(language: language)
+        voiceCache[language] = best
+        return best
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
         let from = ObjectIdentifier(synthesizer)
-        Task { @MainActor in
-            guard from == ObjectIdentifier(self.synth) else { return }
-            self.lastStart = Date()
-            if !self.isSpeaking { self.setSpeaking(true) }
-        }
+        Task { @MainActor in self.started(from: from) }
     }
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         finished(utterance: ObjectIdentifier(utterance), from: ObjectIdentifier(synthesizer))
@@ -156,12 +186,21 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     }
 
     nonisolated private func finished(utterance: ObjectIdentifier, from synthesizer: ObjectIdentifier) {
-        Task { @MainActor in
-            // Ignore late callbacks from a synthesizer that was already replaced.
-            guard synthesizer == ObjectIdentifier(self.synth) else { return }
-            self.pending.remove(utterance)
-            if self.pending.isEmpty && self.isSpeaking { self.setSpeaking(false) }
-        }
+        Task { @MainActor in self.finished(utterance, from: synthesizer) }
+    }
+
+    /// A sentence began (called by the synthesizer; directly by tests).
+    func started(from synthesizer: ObjectIdentifier) {
+        guard synthesizer == ObjectIdentifier(synth) else { return }
+        lastStart = Date()
+        if !isSpeaking { setSpeaking(true) }
+    }
+
+    /// A sentence finished or was cancelled. Late callbacks from a replaced synthesizer are ignored.
+    func finished(_ utterance: ObjectIdentifier, from synthesizer: ObjectIdentifier) {
+        guard synthesizer == ObjectIdentifier(synth) else { return }
+        pending.remove(utterance)
+        if pending.isEmpty && isSpeaking { setSpeaking(false) }
     }
 
     private func setSpeaking(_ value: Bool) {

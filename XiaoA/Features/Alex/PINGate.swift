@@ -40,8 +40,11 @@ struct PINGate: View {
         .presentationDetents([.medium])
     }
 
+    /// The PIN typed must match exactly.
+    static func unlocks(entry: String, pin: String) -> Bool { entry == pin }
+
     private func check() {
-        if entry == store.config.pin {
+        if Self.unlocks(entry: entry, pin: store.config.pin) {
             unlock()
         } else {
             wrong = true

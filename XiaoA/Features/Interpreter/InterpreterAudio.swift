@@ -21,53 +21,39 @@ final class InterpreterAudio {
     private(set) var chunksSent = 0
     private(set) var loudChunks = 0
 
+    /// The audio session mode. Default, never voice chat: voice processing handed the app empty
+    /// microphone audio on some iPhones, and voice-chat mode plays quietly.
+    static let sessionMode: AVAudioSession.Mode = .default
+
     private let lock = NSLock()
-    /// When the speech queued on the player should be finished. Worked out from the audio's
-    /// length rather than the player's callbacks, so the mic can never stay muted by mistake.
-    private var playUntil = Date.distantPast
-    private var muteUntil = Date.distantPast
-    private var externalMute = false
+    /// When the phone is talking, so the mic sends silence (guarded by lock).
+    private var playback = PlaybackClock()
     private var lastLoudInput = Date.distantPast
-    /// Silence after speech before the mic opens again, so it doesn't catch the speaker's tail.
-    private let tail: TimeInterval = 0.6
-
-    // MARK: Room-noise gate (audio thread)
-
-    /// How loud the room is when nobody is talking to the phone (RMS, 16-bit units).
-    private var roomLevel: Float = 150
-    private var gateOpenUntil = Date.distantPast
-    private var gateWasOpen = false
-    /// The last ~0.3 s of mic audio, sent just ahead of speech so first syllables aren't lost.
-    private var preRoll: [Data] = []
-    /// Never let through sound quieter than this, however quiet the room (≈ -44 dBFS).
-    static let minSpeechLevel: Float = 200
-    /// Someone talking to the phone is at least this much louder than the room (2.2× ≈ 7 dB).
-    static let overRoom: Float = 2.2
-    /// Keeps the gate open through short pauses between words.
-    static let hold: TimeInterval = 0.8
+    /// Room-noise gate (audio thread only).
+    private var gate = MicGate()
 
     // For the debug log (guarded by lock).
     private var statChunks = 0
     private var statOpen = 0
     private var statLoudest: Float = 0
+    private var statRoom: Float = 0
 
     /// True while translated speech is playing (plus a short tail).
     var isPlaying: Bool {
         lock.lock(); defer { lock.unlock() }
-        return Date() < playUntil.addingTimeInterval(tail) || Date() < muteUntil
+        return playback.isMuted(at: Date())
     }
 
     /// When the phone last finished talking (now, if it still is).
     var speechEnd: Date {
         lock.lock(); defer { lock.unlock() }
-        if externalMute { return Date() }
-        return max(playUntil, muteUntil)
+        return playback.speechEnd(at: Date())
     }
 
     /// Stops translated speech that is playing or queued, e.g. when it turns out to be an echo.
     func flush() {
         player.stop()
-        lock.lock(); playUntil = Date(); lock.unlock()
+        lock.lock(); playback.flush(at: Date()); lock.unlock()
         player.play()
     }
 
@@ -80,11 +66,11 @@ final class InterpreterAudio {
     /// Room level, loudest sound and how often the gate was open since the last call.
     func levelReport() -> String {
         lock.lock()
-        let room = Int(roomLevel), loudest = Int(statLoudest)
+        let room = Int(statRoom), loudest = Int(statLoudest)
         let open = statChunks > 0 ? 100 * statOpen / statChunks : 0
         statChunks = 0; statOpen = 0; statLoudest = 0
         lock.unlock()
-        let threshold = Int(max(Self.minSpeechLevel, Float(room) * Self.overRoom))
+        let threshold = Int(max(MicGate.minSpeechLevel, Float(room) * MicGate.overRoom))
         return "room \(room), lets through > \(threshold), loudest \(loudest), open \(open)% of the time"
     }
 
@@ -103,8 +89,7 @@ final class InterpreterAudio {
 
     func setExternalMute(_ muted: Bool) {
         lock.lock()
-        externalMute = muted
-        if !muted { muteUntil = Date().addingTimeInterval(0.5) }
+        playback.setExternalMute(muted, at: Date())
         lock.unlock()
     }
 
@@ -114,7 +99,7 @@ final class InterpreterAudio {
         // the person across the table has to hear the translation and be heard.
         // Default mode (not voice chat) plays at full media loudness and never routes to
         // Bluetooth headsets.
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+        try session.setCategory(.playAndRecord, mode: Self.sessionMode, options: [.defaultToSpeaker])
         try session.setActive(true)
         try? session.overrideOutputAudioPort(.speaker)
 
@@ -153,7 +138,7 @@ final class InterpreterAudio {
     func play(pcm16 data: Data) {
         guard let buffer = booster.boost(data) else { return }
         lock.lock()
-        playUntil = max(Date(), playUntil).addingTimeInterval(Double(buffer.frameLength) / playFormat.sampleRate)
+        playback.scheduled(seconds: Double(buffer.frameLength) / playFormat.sampleRate, at: Date())
         lock.unlock()
         player.scheduleBuffer(buffer, completionHandler: nil)
         if !player.isPlaying { player.play() }
@@ -195,55 +180,117 @@ final class InterpreterAudio {
         let level = (sumSquares / Float(count)).squareRoot()
         let now = Date()
         lock.lock()
-        let mute = externalMute || now < playUntil.addingTimeInterval(tail) || now < muteUntil
+        let mute = playback.isMuted(at: now)
         lock.unlock()
 
-        var open = false
-        if !mute {
-            // The room level follows quiet moments quickly and loud ones very slowly, so
-            // talking doesn't raise it, but a room that gets noisier is learned within ~20 s.
-            if level < roomLevel {
-                roomLevel = 0.7 * roomLevel + 0.3 * level
-            } else {
-                roomLevel = min(level, roomLevel * 1.005)
-            }
-            roomLevel = max(roomLevel, 20)
-            if level > max(Self.minSpeechLevel, roomLevel * Self.overRoom) {
-                gateOpenUntil = now.addingTimeInterval(Self.hold)
-            }
-            open = now < gateOpenUntil
-        }
+        let raw = Data(bytes: samples, count: byteCount)
+        let result = gate.feed(raw, level: level, muted: mute, now: now)
 
         lock.lock()
-        if open { lastLoudInput = now }
+        if result.open { lastLoudInput = now }
         if !mute {
             statChunks += 1
-            if open { statOpen += 1 }
+            if result.open { statOpen += 1 }
             statLoudest = max(statLoudest, level)
         }
+        statRoom = gate.roomLevel
         lock.unlock()
         chunksSent += 1
         if peak > 1500 { loudChunks += 1 }
+        result.send.forEach { onMicChunk?($0) }
+    }
+}
 
-        let raw = Data(bytes: samples, count: byteCount)
-        if mute {
+/// When the phone is talking and the microphone must send silence. Worked out from the length of
+/// the audio queued, never from the player's callbacks, so the mic can't stay muted by mistake.
+struct PlaybackClock {
+    /// Silence after speech before the mic opens again, so it doesn't catch the speaker's tail.
+    static let tail: TimeInterval = 0.6
+    /// After the phone's own voice (Apple speech) stops.
+    static let externalTail: TimeInterval = 0.5
+
+    private(set) var playUntil = Date.distantPast
+    private var muteUntil = Date.distantPast
+    private var externalMute = false
+
+    mutating func scheduled(seconds: TimeInterval, at now: Date) {
+        playUntil = max(now, playUntil).addingTimeInterval(seconds)
+    }
+
+    mutating func setExternalMute(_ muted: Bool, at now: Date) {
+        externalMute = muted
+        if !muted { muteUntil = now.addingTimeInterval(Self.externalTail) }
+    }
+
+    mutating func flush(at now: Date) {
+        playUntil = now
+    }
+
+    func isMuted(at now: Date) -> Bool {
+        externalMute || now < playUntil.addingTimeInterval(Self.tail) || now < muteUntil
+    }
+
+    func speechEnd(at now: Date) -> Date {
+        externalMute ? now : max(playUntil, muteUntil)
+    }
+}
+
+/// The room-noise gate. It learns how loud the room is and lets through only sound clearly louder
+/// than that (someone talking to the phone); everything else goes out as silence, with the last
+/// 0.3 s sent just ahead of speech so first syllables aren't lost. While the phone talks: silence.
+struct MicGate {
+    /// Never let through sound quieter than this, however quiet the room (RMS, 16-bit, ≈ -44 dBFS).
+    static let minSpeechLevel: Float = 200
+    /// Someone talking to the phone is at least this much louder than the room (2.2× ≈ 7 dB).
+    static let overRoom: Float = 2.2
+    /// Keeps the gate open through short pauses between words.
+    static let hold: TimeInterval = 0.8
+    /// Chunks of lead-in (~0.3 s at 100 ms chunks).
+    static let preRollChunks = 3
+
+    /// How loud the room is when nobody is talking to the phone.
+    private(set) var roomLevel: Float = 150
+    private var openUntil = Date.distantPast
+    private var wasOpen = false
+    private var preRoll: [Data] = []
+
+    /// One chunk in; what to send (silence, the chunk, or lead-in + the chunk) and whether the gate is open.
+    mutating func feed(_ raw: Data, level: Float, muted: Bool, now: Date) -> (send: [Data], open: Bool) {
+        if muted {
             preRoll.removeAll()
-            gateWasOpen = false
-            onMicChunk?(Data(count: byteCount))
-            return
+            wasOpen = false
+            return ([Data(count: raw.count)], false)
         }
+        // The room level follows quiet moments quickly and loud ones very slowly, so talking
+        // doesn't raise it, but a room that gets noisier is learned within ~20 s.
+        if level < roomLevel {
+            roomLevel = 0.7 * roomLevel + 0.3 * level
+        } else {
+            roomLevel = min(level, roomLevel * 1.005)
+        }
+        roomLevel = max(roomLevel, 20)
+        if level > max(Self.minSpeechLevel, roomLevel * Self.overRoom) {
+            openUntil = now.addingTimeInterval(Self.hold)
+        }
+        let open = now < openUntil
+        var send: [Data] = []
         if open {
-            if !gateWasOpen {
-                preRoll.forEach { onMicChunk?($0) }
+            if !wasOpen {
+                send.append(contentsOf: preRoll)
                 preRoll.removeAll()
             }
-            gateWasOpen = true
-            onMicChunk?(raw)
+            send.append(raw)
         } else {
-            gateWasOpen = false
-            onMicChunk?(Data(count: byteCount))
+            send.append(Data(count: raw.count))
         }
-        preRoll.append(raw)
-        if preRoll.count > 3 { preRoll.removeFirst() }
+        wasOpen = open
+        // Lead-in is only audio that went out as silence: nothing already sent is ever sent twice.
+        if open {
+            preRoll.removeAll()
+        } else {
+            preRoll.append(raw)
+            if preRoll.count > Self.preRollChunks { preRoll.removeFirst() }
+        }
+        return (send, open)
     }
 }
