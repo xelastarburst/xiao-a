@@ -9,12 +9,12 @@ struct PhotoBlock: Identifiable, Equatable {
     var english: String
     var lines: Int
     /// Claude's translation, made with the whole photo in view. Nil until it arrives.
-    var chinese: String?
+    var translated: String?
     /// Claude says it isn't real text (stray letters, a barcode): don't cover it.
     var hidden = false
 }
 
-/// 定住画面 → read the full-resolution photo carefully (small print included), then have
+/// Bild anhalten → read the full-resolution photo carefully (small print included), then have
 /// Claude translate it with the whole picture in view, so a menu reads like a menu and a
 /// medicine label like a medicine label.
 enum ClearRead {
@@ -75,15 +75,15 @@ enum ClearRead {
     }
 
     struct Result {
-        /// What the photo shows, in a few Chinese words (e.g. "药瓶上的标签").
+        /// What the photo shows, in a few German words (e.g. "Etikett einer Medikamentenflasche").
         var what: String?
-        var chinese: [Int: String]
+        var translated: [Int: String]
     }
 
     /// Claude translates every paragraph at once, seeing the photo.
     static func translate(_ blocks: [PhotoBlock], photo: UIImage) async throws -> Result {
         let client = try ClaudeClient()
-        guard let image = ClaudeClient.imageBlock(photo) else { return Result(chinese: [:]) }
+        guard let image = ClaudeClient.imageBlock(photo) else { return Result(translated: [:]) }
         let list = blocks.map { "\($0.id): \($0.english)" }.joined(separator: "\n")
         let messages: [[String: Any]] = [[
             "role": "user",
@@ -92,12 +92,12 @@ enum ClearRead {
         let reply = try await client.complete(model: ClaudeClient.Model.vision, system: systemPrompt,
                                               messages: messages, maxTokens: 2500)
         let result = parse(reply)
-        if result.chinese.isEmpty { print("[XA] Look: couldn't read Claude's reply: \(reply.prefix(300))") }
+        if result.translated.isEmpty { print("[XA] Look: couldn't read Claude's reply: \(reply.prefix(300))") }
         return result
     }
 
     /// Live mode: everything the camera sees right now, translated together (text only, fast).
-    /// Returns English → Chinese for each piece.
+    /// Returns English → German for each piece.
     static func translateInContext(_ texts: [String]) async throws -> [String: String] {
         guard !texts.isEmpty else { return [:] }
         let client = try ClaudeClient()
@@ -106,50 +106,50 @@ enum ClearRead {
         let reply = try await client.complete(model: ClaudeClient.Model.fast, system: liveSystemPrompt,
                                               messages: messages, maxTokens: 1500)
         let parsed = parse(reply)
-        if parsed.chinese.isEmpty { print("[XA] Look live: couldn't read Claude's reply: \(reply.prefix(300))") }
+        if parsed.translated.isEmpty { print("[XA] Look live: couldn't read Claude's reply: \(reply.prefix(300))") }
         var out: [String: String] = [:]
         for (i, text) in texts.enumerated() {
-            if let zh = parsed.chinese[i + 1] { out[text] = zh.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if let zh = parsed.translated[i + 1] { out[text] = zh.trimmingCharacters(in: .whitespacesAndNewlines) }
         }
         return out
     }
 
     static let liveSystemPrompt = """
-    You translate English into Simplified Chinese for an elderly woman from mainland China who reads \
-    no English. The numbered pieces were read by her phone's camera from one thing she is looking at \
+    You translate English into German for an elderly German woman living in the US who reads little \
+    English. The numbered pieces were read by her phone's camera from one thing she is looking at \
     right now (a sign, menu, label, screen, form or page), listed top to bottom. Pieces may be cut off \
     or contain small reading mistakes.
 
-    Translate each piece into short, natural Simplified Chinese, using the other pieces to understand \
-    what the thing is and what each piece means there. Keep numbers, prices, times, dates, doses and \
-    phone numbers exactly; brand names stay in English. Translate only what is written. If a piece is \
-    not meaningful text, give an empty string.
+    Translate each piece into short, natural German (formal "Sie" where an address is needed), using \
+    the other pieces to understand what the thing is and what each piece means there. Keep numbers, \
+    prices, times, dates, doses and phone numbers exactly; brand names stay in English. Translate only \
+    what is written. If a piece is not meaningful text, give an empty string.
 
     Reply in plain text, nothing else: one line per piece, in order: the piece number, a colon, the \
-    Chinese. Leave it empty after the colon for a piece that is not meaningful text. Example:
-    1: 今日特价
-    2: 拿铁咖啡 $4.50
+    German. Leave it empty after the colon for a piece that is not meaningful text. Example:
+    1: Heute im Angebot
+    2: Milchkaffee (Latte) $4.50
     3:
     """
 
     static let systemPrompt = """
-    You translate English in photos into Simplified Chinese for an elderly woman from mainland China \
-    who reads no English. You get a photo and the text blocks a text reader found in it, numbered.
+    You translate English in photos into German for an elderly German woman living in the US who reads \
+    little English. You get a photo and the text blocks a text reader found in it, numbered.
 
-    Translate every block into natural, plain Simplified Chinese that fits what the thing is \
-    (a menu, a medicine label, a sign, a form, a letter, a product). Use the photo to fix reading \
-    mistakes and to understand context, abbreviations and units. Keep numbers, prices, times, dates, \
-    doses and phone numbers exactly as written; you may add Chinese units (e.g. "每天 2 次"). Keep \
-    brand and product names in English and add a short Chinese description in brackets when it helps. \
-    Translate only what is written: no advice, no extra information. If a block is not meaningful \
-    text (stray letters, part of a logo, a barcode), give an empty string for it.
+    Translate every block into natural, plain German that fits what the thing is (a menu, a medicine \
+    label, a sign, a form, a letter, a product). Use the photo to fix reading mistakes and to understand \
+    context, abbreviations and units. Keep numbers, prices, times, dates, doses and phone numbers \
+    exactly as written; after US units you may add the metric value in brackets (e.g. "12 oz (340 g)", \
+    "72 °F (22 °C)"). Keep brand and product names in English and add a short German description in \
+    brackets when it helps. Translate only what is written: no advice, no extra information. If a block \
+    is not meaningful text (stray letters, part of a logo, a barcode), give an empty string for it.
 
-    Reply in plain text, nothing else. First line: WHAT: <what the photo shows, at most 10 Chinese \
-    characters>. Then one line per block, in order: the block number, a colon, the Chinese. Leave it \
-    empty after the colon for a block that is not meaningful text. Example:
-    WHAT: 药瓶标签
-    1: 布洛芬
-    2: 每次 1 片，每天 3 次
+    Reply in plain text, nothing else. First line: WHAT: <what the photo shows, in at most 4 German \
+    words>. Then one line per block, in order: the block number, a colon, the German. Leave it empty \
+    after the colon for a block that is not meaningful text. Example:
+    WHAT: Etikett einer Medikamentenflasche
+    1: Ibuprofen
+    2: 1 Tablette, 3-mal täglich
     3:
     """
 
@@ -157,7 +157,7 @@ enum ClearRead {
     /// translation contains quotes.
     static func parse(_ reply: String) -> Result {
         var what: String?
-        var chinese: [Int: String] = [:]
+        var translated: [Int: String] = [:]
         for raw in reply.split(whereSeparator: \.isNewline) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             let upper = line.uppercased()
@@ -170,9 +170,9 @@ enum ClearRead {
             guard !digits.isEmpty, digits.count <= 3, let id = Int(digits) else { continue }
             let rest = line.dropFirst(digits.count).drop(while: { $0 == " " })
             guard let separator = rest.first, ":：.、)".contains(separator) else { continue }
-            chinese[id] = rest.dropFirst().trimmingCharacters(in: .whitespaces)
+            translated[id] = rest.dropFirst().trimmingCharacters(in: .whitespaces)
         }
-        return Result(what: what, chinese: chinese)
+        return Result(what: what, translated: translated)
     }
 }
 

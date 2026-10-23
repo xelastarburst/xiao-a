@@ -1,8 +1,8 @@
 import SwiftUI
 import AVFoundation
 
-/// The OpenAI voices Alex can pick for 翻译官 (Alex mode › Interpreter voices).
-/// One voice says Mom's words to the other person; one says their words to Mom.
+/// The OpenAI voices her family can pick for the Dolmetscher (Settings › Interpreter voices).
+/// One voice says her words to the other person; one says their words to her.
 struct InterpreterVoice: Identifiable, Hashable {
     let id: String
     let name: String
@@ -21,12 +21,12 @@ struct InterpreterVoice: Identifiable, Hashable {
 
     static let defaultID = "marin"
     /// UserDefaults keys (also used with @AppStorage).
-    static let momKey = "voiceForMom"
+    static let herKey = "voiceForHer"
     static let othersKey = "voiceForOthers"
 
-    /// Says Mom's words to the other person, in English or German.
-    static var forMom: String { saved(momKey) }
-    /// Says the other person's words to Mom, in Chinese.
+    /// Says her words to the other person, in English or Chinese.
+    static var forHer: String { saved(herKey) }
+    /// Says the other person's words to her, in German.
     static var forOthers: String { saved(othersKey) }
 
     static func named(_ id: String) -> InterpreterVoice {
@@ -91,7 +91,8 @@ final class VoicePreview: ObservableObject {
     private var endsAt = Date()
     private var task: Task<Void, Never>?
 
-    func play(_ voice: String, chinese: Bool, partner: PartnerLanguage, tag: String) {
+    /// A sample of `voice` in `language` (German for the voice that speaks to her).
+    func play(_ voice: String, language: SpokenLanguage, tag: String) {
         stop()
         guard let apiKey = APIKeys.get(.openAI) else {
             problem = "Save the OpenAI key first."
@@ -99,12 +100,10 @@ final class VoicePreview: ObservableObject {
         }
         problem = nil
         let text: String
-        if chinese {
-            text = "您好！很高兴认识您。请问最近的地铁站怎么走？"
-        } else if partner == .german {
-            text = "Hallo! Schön, Sie kennenzulernen. Wie komme ich zur nächsten U-Bahn-Station?"
-        } else {
-            text = "Hi! Nice to meet you. Could you tell me how to get to the nearest train station?"
+        switch language {
+        case .german: text = "Hallo! Schön, Sie kennenzulernen. Wie komme ich zur nächsten Bushaltestelle?"
+        case .mandarin: text = "您好！很高兴认识您。请问最近的公交车站怎么走？"
+        case .english: text = "Hi! Nice to meet you. Could you tell me how to get to the nearest bus stop?"
         }
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
@@ -125,7 +124,7 @@ final class VoicePreview: ObservableObject {
         playing = tag
         task = Task { [weak self] in
             do {
-                try await OpenAISpeech.speak(text, apiKey: apiKey, voice: voice, chinese: chinese) { chunk in
+                try await OpenAISpeech.speak(text, apiKey: apiKey, voice: voice, language: language) { chunk in
                     await self?.schedule(chunk)
                 }
             } catch {
@@ -155,19 +154,20 @@ final class VoicePreview: ObservableObject {
     }
 }
 
-/// Alex mode › Interpreter voices › (one side): every voice with a play button.
+/// Settings › Interpreter voices › (one side): every voice with a play button.
 struct VoiceChooser: View {
     let title: String
     let key: String
-    let chinese: Bool
+    /// True for the voice that speaks to her (in German).
+    let toHer: Bool
     @AppStorage("interpreterPartner") private var partnerCode = PartnerLanguage.english.rawValue
     @AppStorage private var selected: String
     @StateObject private var preview = VoicePreview()
 
-    init(title: String, key: String, chinese: Bool) {
+    init(title: String, key: String, toHer: Bool) {
         self.title = title
         self.key = key
-        self.chinese = chinese
+        self.toHer = toHer
         _selected = AppStorage(wrappedValue: InterpreterVoice.defaultID, key)
     }
 
@@ -196,9 +196,8 @@ struct VoiceChooser: View {
                             if preview.playing == voice.id {
                                 preview.stop()
                             } else {
-                                preview.play(voice.id, chinese: chinese,
-                                             partner: PartnerLanguage(rawValue: partnerCode) ?? .english,
-                                             tag: voice.id)
+                                let partner = PartnerLanguage(rawValue: partnerCode) ?? .english
+                                preview.play(voice.id, language: toHer ? .german : partner.spoken, tag: voice.id)
                             }
                         } label: {
                             Image(systemName: preview.playing == voice.id ? "stop.circle.fill" : "play.circle.fill")
@@ -213,8 +212,8 @@ struct VoiceChooser: View {
                 if let problem = preview.problem {
                     Text(problem).foregroundStyle(.red)
                 } else {
-                    Text(chinese
-                         ? "Tap ▶︎ to hear a Chinese sample. Tap a name to use it."
+                    Text(toHer
+                         ? "Tap ▶︎ to hear a German sample. Tap a name to use it."
                          : "Tap ▶︎ to hear a sample in the other person's language. Tap a name to use it.")
                 }
             }

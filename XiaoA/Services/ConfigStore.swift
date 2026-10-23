@@ -3,7 +3,7 @@ import UIKit
 
 struct Place: Codable, Identifiable, Hashable {
     var id = UUID()
-    var nameZH: String
+    var nameDE: String
     var addressEN: String
     var icon: String = "mappin.and.ellipse"
 
@@ -25,11 +25,11 @@ struct MedicalInfo: Codable, Hashable {
     var memberID = ""
     var insurerPhone = ""
     var conditionsEN = ""
-    var conditionsZH = ""
+    var conditionsDE = ""
     var medicationsEN = ""
-    var medicationsZH = ""
+    var medicationsDE = ""
     var allergiesEN = ""
-    var allergiesZH = ""
+    var allergiesDE = ""
     var doctorName = ""
     var doctorPhone = ""
 
@@ -42,56 +42,54 @@ struct MedicalInfo: Codable, Hashable {
         memberID = c.value(.memberID, "")
         insurerPhone = c.value(.insurerPhone, "")
         conditionsEN = c.value(.conditionsEN, "")
-        conditionsZH = c.value(.conditionsZH, "")
+        conditionsDE = c.value(.conditionsDE, "")
         medicationsEN = c.value(.medicationsEN, "")
-        medicationsZH = c.value(.medicationsZH, "")
+        medicationsDE = c.value(.medicationsDE, "")
         allergiesEN = c.value(.allergiesEN, "")
-        allergiesZH = c.value(.allergiesZH, "")
+        allergiesDE = c.value(.allergiesDE, "")
         doctorName = c.value(.doctorName, "")
         doctorPhone = c.value(.doctorPhone, "")
     }
 }
 
-/// Everything Alex sets up. Mom never sees this directly.
+/// Everything her family sets up (Einstellungen). She never sees this directly.
 struct AppConfig: Codable {
-    var momNameZH = "妈妈"
-    var momNameEN = ""
-    var momPhone = ""
-    var alexName = "Alex"
-    var alexPhone = ""
+    /// What the app calls her, e.g. "Frau Weber" or "Oma Inge" (empty: no name in greetings).
+    var herName = ""
+    var herNameEN = ""
+    var herPhone = ""
+    /// The family member she calls and texts for help and rides.
+    var contactName = ""
+    var contactPhone = ""
     var homeAddressEN = ""
-    var homeAddressZH = ""
+    var homeAddressDE = ""
     var places: [Place] = []
     var medical = MedicalInfo()
     var askContext = ""
-    var reminderHour = 10
-    var reminderMinute = 0
-    var remindersOn = true
-    var strictPronunciation = false
-    var newPhrasesPerDay = 4
     var pin = ""
 
     init() {}
 
-    // Tolerant decoding so adding a field later never wipes Alex's setup.
+    // Tolerant decoding so adding a field later never wipes the setup.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        momNameZH = c.value(.momNameZH, "妈妈")
-        momNameEN = c.value(.momNameEN, "")
-        momPhone = c.value(.momPhone, "")
-        alexName = c.value(.alexName, "Alex")
-        alexPhone = c.value(.alexPhone, "")
+        herName = c.value(.herName, "")
+        herNameEN = c.value(.herNameEN, "")
+        herPhone = c.value(.herPhone, "")
+        contactName = c.value(.contactName, "")
+        contactPhone = c.value(.contactPhone, "")
         homeAddressEN = c.value(.homeAddressEN, "")
-        homeAddressZH = c.value(.homeAddressZH, "")
+        homeAddressDE = c.value(.homeAddressDE, "")
         places = c.value(.places, [])
         medical = c.value(.medical, MedicalInfo())
         askContext = c.value(.askContext, "")
-        reminderHour = c.value(.reminderHour, 10)
-        reminderMinute = c.value(.reminderMinute, 0)
-        remindersOn = c.value(.remindersOn, true)
-        strictPronunciation = c.value(.strictPronunciation, false)
-        newPhrasesPerDay = c.value(.newPhrasesPerDay, 4)
         pin = c.value(.pin, "")
+    }
+
+    /// Her contact as shown to her: the name, or "Ihre Familie" until one is set.
+    var contactLabel: String {
+        let name = contactName.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "Ihre Familie" : name
     }
 }
 
@@ -111,7 +109,7 @@ final class ConfigStore: ObservableObject {
 
     private static var folder: URL {
         let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("XiaoA", isDirectory: true)
+            .appendingPathComponent("Helferlein", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
@@ -130,14 +128,14 @@ final class ConfigStore: ObservableObject {
         }
     }
 
-    var isSetUp: Bool { !config.alexPhone.trimmingCharacters(in: .whitespaces).isEmpty }
+    var isSetUp: Bool { !config.contactPhone.trimmingCharacters(in: .whitespaces).isEmpty }
 
-    /// Places Mom can ride to: home first, then Alex's saved places.
+    /// Places she can ride to: home first, then the saved places.
     var ridePlaces: [Place] {
         var list: [Place] = []
         if !config.homeAddressEN.isEmpty {
             list.append(Place(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
-                              nameZH: "家", addressEN: config.homeAddressEN, icon: "house.fill"))
+                              nameDE: "Zuhause", addressEN: config.homeAddressEN, icon: "house.fill"))
         }
         return list + config.places
     }

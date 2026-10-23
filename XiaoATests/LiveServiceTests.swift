@@ -40,18 +40,21 @@ struct LiveServiceTests {
         #expect(events.filter { $0 == .ready }.count >= 2, "session settings were not confirmed")
     }
 
-    @Test("Claude translates for the interpreter, in the requested direction")
+    @Test("Claude translates for the interpreter, both ways, in the requested direction")
     func claudeTranslates() async throws {
         let client = try ClaudeClient()
-        let line = InterpreterEngine.Line(fromMom: true, original: "请问洗手间在哪里？")
-        let message = InterpreterEngine.translationMessage(for: line, earlier: [], partnerName: "German")
-        let reply = try await client.complete(model: ClaudeClient.Model.fast,
-                                              system: "You are a live interpreter. Reply with the translation only.",
-                                              messages: [["role": "user", "content": message]], maxTokens: 100)
-        let clean = InterpreterEngine.cleanTranslation(reply)
-        #expect(!clean.isEmpty && !InterpreterEngine.hasChinese(clean), "got: \(clean)")
-        #expect(clean.lowercased().contains("toilette") || clean.lowercased().contains("wc")
-                || clean.lowercased().contains("bad"), "got: \(clean)")
+        func translate(_ line: InterpreterEngine.Line, partner: PartnerLanguage) async throws -> String {
+            let message = InterpreterEngine.translationMessage(for: line, earlier: [], partnerName: partner.promptName)
+            let reply = try await client.complete(model: ClaudeClient.Model.fast,
+                                                  system: "You are a live interpreter. Reply with the translation only.",
+                                                  messages: [["role": "user", "content": message]], maxTokens: 100)
+            return InterpreterEngine.cleanTranslation(reply)
+        }
+        let toEnglish = try await translate(.init(fromHer: true, original: "Entschuldigung, wo ist die Toilette?"), partner: .english)
+        #expect(["restroom", "bathroom", "toilet"].contains { toEnglish.lowercased().contains($0) }, "got: \(toEnglish)")
+        let toGerman = try await translate(.init(fromHer: false, original: "请问洗手间在哪里？"), partner: .chinese)
+        #expect(!InterpreterEngine.hasChinese(toGerman), "got: \(toGerman)")
+        #expect(["toilette", "wc", "bad"].contains { toGerman.lowercased().contains($0) }, "got: \(toGerman)")
     }
 
     @Test("OpenAI's voice streams audio in whole chunks")
@@ -59,7 +62,7 @@ struct LiveServiceTests {
         let key = try #require(APIKeys.get(.openAI), "no OpenAI key in this build")
         final class Received { var chunks: [Data] = [] }
         let received = Received()
-        try await OpenAISpeech.speak("Hello.", apiKey: key, voice: InterpreterVoice.defaultID, chinese: false) { chunk in
+        try await OpenAISpeech.speak("Guten Tag.", apiKey: key, voice: InterpreterVoice.defaultID, language: .german) { chunk in
             received.chunks.append(chunk)
         }
         let chunks = received.chunks

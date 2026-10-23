@@ -17,7 +17,7 @@
                BlueprintIdentifier = "7A1A00000000000000000006"
                BuildableName = "XiaoA.app"
                BlueprintName = "XiaoA"
-               ReferencedContainer = "container:XiaoA.xcodeproj">
+               ReferencedContainer = "container:Helferlein.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -44,7 +44,7 @@
                BlueprintIdentifier = "7A1A00000000000000000106"
                BuildableName = "XiaoATests.xctest"
                BlueprintName = "XiaoATests"
-               ReferencedContainer = "container:XiaoA.xcodeproj">
+               ReferencedContainer = "container:Helferlein.xcodeproj">
             </BuildableReference>
          </TestableReference>
          <TestableReference
@@ -55,7 +55,7 @@
                BlueprintIdentifier = "7A1A00000000000000000206"
                BuildableName = "XiaoAUITests.xctest"
                BlueprintName = "XiaoAUITests"
-               ReferencedContainer = "container:XiaoA.xcodeproj">
+               ReferencedContainer = "container:Helferlein.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -77,7 +77,7 @@
             BlueprintIdentifier = "7A1A00000000000000000006"
             BuildableName = "XiaoA.app"
             BlueprintName = "XiaoA"
-            ReferencedContainer = "container:XiaoA.xcodeproj">
+            ReferencedContainer = "container:Helferlein.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -94,7 +94,7 @@
             BlueprintIdentifier = "7A1A00000000000000000006"
             BuildableName = "XiaoA.app"
             BlueprintName = "XiaoA"
-            ReferencedContainer = "container:XiaoA.xcodeproj">
+            ReferencedContainer = "container:Helferlein.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

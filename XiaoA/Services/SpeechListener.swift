@@ -1,15 +1,15 @@
 import AVFoundation
 import Speech
 
-/// Push-to-talk speech recognition, used for Mandarin questions (Ask) and English practice (Learn).
+/// Push-to-talk speech recognition, used for her German questions (Fragen).
 @MainActor
 final class SpeechListener: ObservableObject {
     enum ListenError: LocalizedError {
         case notAllowed, unavailable
         var errorDescription: String? {
             switch self {
-            case .notAllowed: return "需要打开麦克风和语音识别权限。请让 Alex 在“设置”里打开。"
-            case .unavailable: return "现在听不了，请稍后再试。"
+            case .notAllowed: return "Mikrofon und Spracherkennung sind nicht erlaubt. Bitte lassen Sie Ihre Familie das in den iPhone-Einstellungen einschalten."
+            case .unavailable: return "Ich kann gerade nicht zuhören. Bitte versuchen Sie es gleich noch einmal."
             }
         }
     }
@@ -50,7 +50,7 @@ final class SpeechListener: ObservableObject {
         return speech && mic
     }
 
-    /// locale: "zh-CN" for Mom's questions, "en-US" for practice.
+    /// locale: "de-DE" for her questions.
     /// preferOnDevice: insist on the phone's own recognizer (offline). Off by default: the
     /// on-device English model is often missing on a Chinese-language iPhone.
     /// record: also keep the audio of this press in `lastRecording`.

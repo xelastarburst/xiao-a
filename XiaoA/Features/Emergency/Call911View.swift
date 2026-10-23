@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Teaches the one word that matters ("Mandarin") before placing the call.
+/// Teaches the one word that matters ("German") before placing the call.
 struct Call911View: View {
     var practice: Bool
 
@@ -10,51 +10,51 @@ struct Call911View: View {
 
     private var script: String {
         let address = store.config.homeAddressEN.isEmpty ? "" : " My home address is \(store.config.homeAddressEN)."
-        return "Hello. I don't speak English. I speak Mandarin. Please get a Mandarin interpreter.\(address)"
+        return "Hello. I don't speak English. I speak German. Please get a German interpreter.\(address)"
     }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("接通后，先说这个词：").font(.xa(20, .heavy)).foregroundStyle(Palette.ink2)
-                    Text("Mandarin")
+                    Text("Wenn jemand abnimmt, sagen Sie zuerst dieses Wort:").font(.xa(20, .heavy)).foregroundStyle(Palette.ink2)
+                    Text("German")
                         .font(.system(size: 56, weight: .heavy, design: .rounded))
                         .foregroundStyle(Palette.red)
-                    Text("读作“曼-德-林”，意思是普通话").font(.xa(20, .bold))
-                    Text("对方会找中文翻译来帮你").font(.xa(19, .bold)).foregroundStyle(Palette.tealInk)
-                    SoftButton(title: "先听一遍怎么说", systemImage: "speaker.wave.2.fill",
+                    Text("Gesprochen: „Dschör-men“ – so heißt „Deutsch“ auf Englisch.").font(.xa(20, .bold))
+                    Text("Dann holt man einen deutschen Dolmetscher für Sie.").font(.xa(19, .bold)).foregroundStyle(Palette.tealInk)
+                    SoftButton(title: "Erst anhören, wie man es sagt", systemImage: "speaker.wave.2.fill",
                                fill: Palette.sky, border: nil) {
-                        speaker.speakEnglish("Mandarin. Mandarin, please.", slow: true)
+                        speaker.speakEnglish("German. German, please.", slow: true)
                     }
                     .padding(.top, 10)
                 }
                 .card()
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("也可以放给对方听：").font(.xa(20, .heavy)).foregroundStyle(Color(hex: 0x33455C))
+                    Text("Sie können auch das hier vorspielen:").font(.xa(20, .heavy)).foregroundStyle(Color(hex: 0x33455C))
                     VStack(alignment: .leading, spacing: 6) {
                         Text(script).font(.xa(20, .heavy))
-                        Text("我不会说英语，我说普通话，请找普通话翻译。" + (store.config.homeAddressZH.isEmpty ? "" : "我家地址是 \(store.config.homeAddressZH)。"))
+                        Text("Ich spreche kein Englisch. Ich spreche Deutsch. Bitte holen Sie einen deutschen Dolmetscher." + (store.config.homeAddressDE.isEmpty ? "" : " Meine Adresse ist \(store.config.homeAddressDE)."))
                             .font(.xa(17, .semibold)).foregroundStyle(Palette.ink2)
                     }
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 18).fill(.white))
-                    BigButton(title: speaker.isSpeaking ? "正在播放…" : "播放英文", systemImage: "play.fill",
+                    BigButton(title: speaker.isSpeaking ? "Spielt ab …" : "Englisch abspielen", systemImage: "play.fill",
                               fill: Palette.teal, depth: Palette.tealDeep, height: 56, fontSize: 20) {
                         speaker.speakEnglish(script)
                     }
                 }
                 .card(Palette.skyWash)
 
-                BigButton(title: "现在拨打 911", systemImage: "phone.fill",
+                BigButton(title: "Jetzt 911 anrufen", systemImage: "phone.fill",
                           fill: Palette.red, depth: Palette.redDeep, height: 88, fontSize: 30) {
                     practiceNote = EmergencyActions.call911(practice: practice)
                 }
                 .padding(.top, 4)
 
-                Text("提示：如果打电话时放不出声音，就直接说“Mandarin”。")
+                Text("Das iPhone fragt noch einmal, bevor es anruft. Wenn das Abspielen nicht klappt, sagen Sie einfach „German“.")
                     .font(.xa(17, .semibold))
                     .foregroundStyle(Palette.ink2)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -63,15 +63,15 @@ struct Call911View: View {
             .padding(.bottom, 24)
         }
         .safeAreaInset(edge: .top) {
-            TopBar(title: "打 911", showEmergency: false)
+            TopBar(title: "911 anrufen", showEmergency: false)
                 .padding(.bottom, 8)
                 .background(Palette.redWash)
         }
         .background(ScreenBackground(color: Palette.redWash))
-        .alert("练习", isPresented: $practiceNote) {
-            Button("知道了") {}
+        .alert("Übung", isPresented: $practiceNote) {
+            Button("Verstanden") {}
         } message: {
-            Text("这里会拨打 911。iPhone 会再问一次，确认后才打出去。")
+            Text("Hier würde 911 angerufen. Das iPhone fragt vorher noch einmal nach.")
         }
         .onDisappear { speaker.stop() }
     }

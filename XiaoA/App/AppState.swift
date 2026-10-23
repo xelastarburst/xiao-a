@@ -6,7 +6,6 @@ enum Route: Hashable {
     case look
     case ask
     case interpreter
-    case learn
     case ride
     case emergency(practice: Bool)
     case call911(practice: Bool)
@@ -19,10 +18,8 @@ enum Route: Hashable {
 final class AppState: ObservableObject {
     @Published var path: [Route] = []
     @Published var messageDraft: MessageDraft?
-    /// Photo handed from 看一看 to 问一问.
+    /// Photo handed from Lesen to Fragen.
     var pendingAskImage: UIImage?
-    /// Kept here so a paused lesson resumes where she left off.
-    let coach = CoachModel()
     /// Called when the Messages sheet closes (sent or cancelled).
     private var onMessageFinished: ((Bool) -> Void)?
 
@@ -34,7 +31,7 @@ final class AppState: ObservableObject {
         go(.ask)
     }
 
-    /// Opens a pre-filled text message. Mom only has to tap send.
+    /// Opens a pre-filled text message. She only has to tap send.
     func text(_ number: String, body: String, image: Data? = nil, onFinish: ((Bool) -> Void)? = nil) {
         if MFMessageComposeViewController.canSendText() {
             onMessageFinished = onFinish
@@ -82,7 +79,6 @@ struct RootView: View {
         case .look: LookView()
         case .ask: AskView()
         case .interpreter: InterpreterView()
-        case .learn: LearnView()
         case .ride: RideView()
         case .emergency(let practice): EmergencyView(practice: practice)
         case .call911(let practice): Call911View(practice: practice)

@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import XiaoA
 
-@Suite("翻译官 · Interpreter", .serialized)
+@Suite("Dolmetscher · Interpreter", .serialized)
 @MainActor
 struct InterpreterTests {
 
@@ -53,11 +53,22 @@ struct InterpreterTests {
 
     // MARK: Who spoke, and what counts as speech
 
-    @Test("Chinese means Mom; anything else is the other person")
-    func chineseMeansMom() {
+    @Test("With an English speaker: German is her, English is the other person")
+    func germanOrEnglish() {
+        let her = ["Wo ist die nächste Bushaltestelle?", "Ich suche den Bahnhof.", "Haben Sie heute frisches Brot?",
+                   "Wie viel kostet das?", "Vielen Dank, das ist sehr nett von Ihnen."]
+        let other = ["Where is the nearest bus stop?", "It's just around the corner, on the left.",
+                     "Thank you very much!", "Can I help you find something?", "Have a nice day!"]
+        for text in her { #expect(InterpreterEngine.isHers(text, partner: .english), "\(text)") }
+        for text in other { #expect(!InterpreterEngine.isHers(text, partner: .english), "\(text)") }
+    }
+
+    @Test("With a Chinese speaker: Chinese is the other person, German is her")
+    func germanOrChinese() {
+        #expect(!InterpreterEngine.isHers("两个月了。我来看我儿子。", partner: .chinese))
+        #expect(!InterpreterEngine.isHers("OK 好的", partner: .chinese))
+        #expect(InterpreterEngine.isHers("Wie lange sind Sie schon hier?", partner: .chinese))
         #expect(InterpreterEngine.hasChinese("我想买牛奶"))
-        #expect(InterpreterEngine.hasChinese("OK 好的"))
-        #expect(!InterpreterEngine.hasChinese("Where is the milk?"))
         #expect(!InterpreterEngine.hasChinese("Wie geht es Ihnen?"))
         #expect(!InterpreterEngine.hasChinese("123 !?"))
     }
@@ -68,35 +79,37 @@ struct InterpreterTests {
         #expect(InterpreterEngine.isRealSpeech("你好", milliseconds: 0))                 // length unknown
         #expect(!InterpreterEngine.isRealSpeech("Thanks for watching!", milliseconds: 1500))
         #expect(!InterpreterEngine.isRealSpeech("字幕由 Amara.org 社区提供", milliseconds: 2000))
+        #expect(!InterpreterEngine.isRealSpeech("Untertitel im Auftrag des ZDF, 2017", milliseconds: 2000))
+        #expect(!InterpreterEngine.isRealSpeech("Vielen Dank fürs Zuschauen!", milliseconds: 2000))
         #expect(!InterpreterEngine.isRealSpeech("Hello", milliseconds: 150))             // a click
         #expect(!InterpreterEngine.isRealSpeech("...", milliseconds: 800))
     }
 
     // MARK: Translation requests
 
-    @Test("Other people's words go into Simplified Chinese; context is the last 8 translated lines")
+    @Test("Other people's words go into German; context is the last 8 translated lines")
     func translationContext() {
         var earlier: [InterpreterEngine.Line] = []
         for i in 1...10 {
-            earlier.append(.init(fromMom: i % 2 == 0, original: "o\(i)", translated: "t\(i)"))
+            earlier.append(.init(fromHer: i % 2 == 0, original: "o\(i)", translated: "t\(i)"))
         }
-        earlier.append(.init(fromMom: false, original: "untranslated"))
-        let line = InterpreterEngine.Line(fromMom: false, original: "Is this your bag?")
-        let message = InterpreterEngine.translationMessage(for: line, earlier: earlier, partnerName: "German")
-        #expect(message.hasSuffix("Translate the new line into Simplified Chinese (as used in mainland China)."))
+        earlier.append(.init(fromHer: false, original: "untranslated"))
+        let line = InterpreterEngine.Line(fromHer: false, original: "Is this your bag?")
+        let message = InterpreterEngine.translationMessage(for: line, earlier: earlier, partnerName: "English")
+        #expect(message.hasSuffix("Translate the new line into German."))
         #expect(message.contains("New line from the other person:\nIs this your bag?"))
         #expect(!message.contains("o2 → t2"))                 // older than the last 8
-        #expect(message.contains("Mom said: o4 → t4"))
+        #expect(message.contains("She said: o4 → t4"))
         #expect(message.contains("Other said: o3 → t3"))
-        #expect(message.contains("Mom said: o10 → t10"))
+        #expect(message.contains("She said: o10 → t10"))
         #expect(!message.contains("untranslated"))
     }
 
     @Test("The first line has no empty 'conversation so far'")
     func firstLineHasNoHistory() {
-        let line = InterpreterEngine.Line(fromMom: true, original: "你好")
+        let line = InterpreterEngine.Line(fromHer: true, original: "Guten Tag")
         let message = InterpreterEngine.translationMessage(for: line, earlier: [], partnerName: "English")
-        #expect(message.hasPrefix("New line from Mom (in Chinese):"))
+        #expect(message.hasPrefix("New line from her (in German):"))
     }
 
     @Test("Quotes and spaces around Claude's translation are removed, inner quotes kept")
@@ -124,26 +137,25 @@ struct InterpreterTests {
 
     // MARK: The voice
 
-    @Test("Voice request: streamed PCM from gpt-4o-mini-tts, projected, Mandarin for Mom")
+    @Test("Voice request: streamed PCM from gpt-4o-mini-tts, projected, in the right language")
     func speechRequest() throws {
-        let zh = try OpenAISpeech.request("你好", apiKey: "k", voice: "marin", chinese: true)
-        #expect(zh.url?.absoluteString == "https://api.openai.com/v1/audio/speech")
-        #expect(zh.httpMethod == "POST")
-        #expect(zh.value(forHTTPHeaderField: "Authorization") == "Bearer k")
-        let body = try #require(JSONSerialization.jsonObject(with: zh.httpBody ?? Data()) as? [String: Any])
+        let de = try OpenAISpeech.request("Guten Tag", apiKey: "k", voice: "marin", language: .german)
+        #expect(de.url?.absoluteString == "https://api.openai.com/v1/audio/speech")
+        #expect(de.httpMethod == "POST")
+        #expect(de.value(forHTTPHeaderField: "Authorization") == "Bearer k")
+        let body = try #require(JSONSerialization.jsonObject(with: de.httpBody ?? Data()) as? [String: Any])
         #expect(body["model"] as? String == "gpt-4o-mini-tts")
         #expect(body["voice"] as? String == "marin")
-        #expect(body["input"] as? String == "你好")
+        #expect(body["input"] as? String == "Guten Tag")
         #expect(body["response_format"] as? String == "pcm")
-        let zhInstructions = try #require(body["instructions"] as? String)
-        #expect(zhInstructions.contains("Mandarin"))
-        #expect(zhInstructions.contains("Speak up"))
-
-        let en = try OpenAISpeech.request("Hi", apiKey: "k", voice: "cedar", chinese: false)
-        let enBody = try #require(JSONSerialization.jsonObject(with: en.httpBody ?? Data()) as? [String: Any])
-        let enInstructions = try #require(enBody["instructions"] as? String)
-        #expect(!enInstructions.contains("Mandarin"))
-        #expect(enInstructions.contains("Speak up"))
+        #expect((body["instructions"] as? String)?.contains("German") == true)
+        for language in SpokenLanguage.allCases {
+            #expect(language.instructions.contains("Speak up"), "\(language)")
+        }
+        #expect(SpokenLanguage.mandarin.instructions.contains("Mandarin"))
+        #expect(!SpokenLanguage.english.instructions.contains("German"))
+        #expect(!SpokenLanguage.english.instructions.contains("Mandarin"))
+        #expect(SpokenLanguage.german.appleVoice == "de-DE")
     }
 
     @Test("Streamed audio is cut into 100 ms chunks; the end keeps whole samples only")
@@ -319,32 +331,45 @@ struct InterpreterTests {
         #expect(InterpreterVoice.named("cedar").name == "Cedar")
 
         let defaults = UserDefaults.standard
-        let saved = (defaults.object(forKey: InterpreterVoice.momKey), defaults.object(forKey: InterpreterVoice.othersKey))
+        let saved = (defaults.object(forKey: InterpreterVoice.herKey), defaults.object(forKey: InterpreterVoice.othersKey))
         defer {
-            defaults.set(saved.0, forKey: InterpreterVoice.momKey)
+            defaults.set(saved.0, forKey: InterpreterVoice.herKey)
             defaults.set(saved.1, forKey: InterpreterVoice.othersKey)
         }
-        defaults.removeObject(forKey: InterpreterVoice.momKey)
-        #expect(InterpreterVoice.forMom == "marin")
-        defaults.set("ash", forKey: InterpreterVoice.momKey)
+        defaults.removeObject(forKey: InterpreterVoice.herKey)
+        #expect(InterpreterVoice.forHer == "marin")
+        defaults.set("ash", forKey: InterpreterVoice.herKey)
         defaults.set("removed-voice", forKey: InterpreterVoice.othersKey)
-        #expect(InterpreterVoice.forMom == "ash")
+        #expect(InterpreterVoice.forHer == "ash")
         #expect(InterpreterVoice.forOthers == "marin")
     }
 
-    @Test("English and German partners each have their own words and voice")
+    @Test("English and Chinese partners each have their own words and voice; hers are German")
     func partnerLanguages() {
         #expect(PartnerLanguage.english.voice == "en-US")
-        #expect(PartnerLanguage.german.voice == "de-DE")
-        #expect(PartnerLanguage.german.cantSpeakLabel == "我不会说德语")
-        #expect(PartnerLanguage.english.cantSpeakLabel == "我不会说英语")
+        #expect(PartnerLanguage.chinese.voice == "zh-CN")
+        #expect(PartnerLanguage.english.spoken == .english)
+        #expect(PartnerLanguage.chinese.spoken == .mandarin)
+        #expect(PartnerLanguage.english.cantSpeakLabel == "Ich spreche kein Englisch")
+        #expect(PartnerLanguage.chinese.cantSpeakLabel == "Ich spreche kein Chinesisch")
         for p in PartnerLanguage.allCases {
             #expect(!p.invitation.isEmpty && !p.slowDown.isEmpty && !p.cantSpeakPhrase.isEmpty)
-            #expect(!InterpreterEngine.hasChinese(p.cantSpeakPhrase))
-            #expect(InterpreterEngine.hasChinese(p.cantSpeakChinese))
+            #expect(InterpreterEngine.isHers(p.cantSpeakGerman, partner: p), "\(p)")
+            #expect(!InterpreterEngine.isHers(p.cantSpeakPhrase, partner: p), "\(p)")
         }
-        #expect(InterpreterEngine.targetLanguage(fromMom: true, partnerName: "German") == "German")
-        #expect(Demo.conversation(with: .german).contains { !$0.fromMom && $0.original.contains("Uhr") })
+        #expect(InterpreterEngine.hasChinese(PartnerLanguage.chinese.invitation))
+        #expect(InterpreterEngine.targetLanguage(fromHer: false, partnerName: "English") == "German")
+        #expect(Demo.conversation(with: .chinese).contains { !$0.fromHer && InterpreterEngine.hasChinese($0.original) })
+        #expect(Demo.conversation(with: .english).allSatisfy { !InterpreterEngine.hasChinese($0.original) })
+    }
+
+    @Test("The scripted demo conversations are labelled the way the real engine would label them")
+    func demoSpeakersMatchDetection() {
+        for p in PartnerLanguage.allCases {
+            for line in Demo.conversation(with: p) {
+                #expect(InterpreterEngine.isHers(line.original, partner: p) == line.fromHer, "\(line.original)")
+            }
+        }
     }
 
     @Test("Audio sessions: record-and-play in default mode for both mic users")

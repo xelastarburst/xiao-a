@@ -71,6 +71,6 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     static func mapsLink(_ location: CLLocation) -> String {
-        String(format: "https://maps.apple.com/?ll=%.6f,%.6f&q=Mom", location.coordinate.latitude, location.coordinate.longitude)
+        String(format: "https://maps.apple.com/?ll=%.6f,%.6f&q=Standort", location.coordinate.latitude, location.coordinate.longitude)
     }
 }

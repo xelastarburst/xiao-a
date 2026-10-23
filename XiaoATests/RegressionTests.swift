@@ -28,13 +28,14 @@ struct RegressionTests {
         #expect(!clock.isMuted(at: t0.addingTimeInterval(100.51)))
     }
 
-    @Test("3 · Mom's words are translated into the other person's language, never back into hers")
-    func momsLinesGoToPartnerLanguage() {
-        let mom = InterpreterEngine.Line(fromMom: true, original: "你好")
-        let message = InterpreterEngine.translationMessage(for: mom, earlier: [], partnerName: "English")
+    @Test("3 · Her words are translated into the other person's language, never back into German")
+    func herLinesGoToPartnerLanguage() {
+        let line = InterpreterEngine.Line(fromHer: true, original: "Guten Tag")
+        let message = InterpreterEngine.translationMessage(for: line, earlier: [], partnerName: "English")
         #expect(message.hasSuffix("Translate the new line into English."))
-        #expect(!message.contains("into Simplified Chinese"))
-        #expect(InterpreterEngine.targetLanguage(fromMom: true, partnerName: "German") == "German")
+        #expect(!message.contains("into German"))
+        let chinese = PartnerLanguage.chinese.promptName
+        #expect(InterpreterEngine.targetLanguage(fromHer: true, partnerName: chinese) == chinese)
     }
 
     @Test("4 · Every sentence is spoken exactly once, in the order it was said")
@@ -70,9 +71,9 @@ struct RegressionTests {
 
     @Test("6 · Look's reply parser survives quotes in a translation")
     func lookParserHandlesQuotes() {
-        let result = ClearRead.parse("WHAT: 招牌\n1: 他说\"你好\"\n2: “特价” $5")
-        #expect(result.chinese[1] == "他说\"你好\"")
-        #expect(result.chinese[2] == "“特价” $5")
+        let result = ClearRead.parse("WHAT: Schild\n1: Er sagte \"Hallo\"\n2: „Angebot“ $5")
+        #expect(result.translated[1] == "Er sagte \"Hallo\"")
+        #expect(result.translated[2] == "„Angebot“ $5")
     }
 
     @Test("7 · A late signal from the previous mic press can't switch off the new one")
@@ -86,49 +87,9 @@ struct RegressionTests {
         #expect(listener.transcript == "hello")
     }
 
-    @Test("8 · Learn's listener uses the default audio mode (measurement mode gave empty audio)")
+    @Test("8 · The listener uses the default audio mode (measurement mode gave empty audio)")
     func listenerUsesDefaultAudioMode() {
         #expect(SpeechListener.sessionMode == .default)
-    }
-
-    @Test("9 · Learn never gets stuck: two silent rounds stop and wait, and skip always moves on")
-    func learnNeverStuck() async throws {
-        let voice = FakeVoice()
-        let mic = ScriptedMic(["", ""])
-        let store = LearningStore(fileURL: TestFiles.temporaryURL())
-        let coach = CoachModel()
-        coach.speaker = voice.speaker
-        coach.listenOverride = { try await mic.listen() }
-        coach.tipProvider = { _, _, _, _ in "TIP" }
-        coach.prepareIfNeeded(store: store, config: AppConfig())
-        let unit = try #require(Curriculum.units(for: AppConfig()).first)
-        coach.startScene(unit, store: store)
-        #expect(await waitUntil { mic.calls == 2 && coach.phase == .idle })
-        #expect(coach.index == 0)
-        #expect(voice.allSpoken.contains("我在听呢，你跟我说："))
-        coach.skip(store: store)
-        #expect(coach.index == 1)
-        coach.stopLoop()
-    }
-
-    @Test("10 · The mic only opens after a reading has really finished, even if the voice starts late")
-    func readingNeverCutOff() async throws {
-        let voice = FakeVoice(autoFinish: false)
-        voice.speaker.retryAfter = 10
-        let mic = ScriptedMic([])
-        let store = LearningStore(fileURL: TestFiles.temporaryURL())
-        let coach = CoachModel()
-        coach.speaker = voice.speaker
-        coach.listenOverride = { try await mic.listen() }
-        coach.prepareIfNeeded(store: store, config: AppConfig())
-        let unit = try #require(Curriculum.units(for: AppConfig()).first)
-        coach.startScene(unit, store: store)
-        try await Task.sleep(nanoseconds: 1_200_000_000)    // the voice hasn't even started
-        #expect(mic.calls == 0)
-        #expect(coach.phase == .speaking)
-        voice.finishAll()
-        #expect(await waitUntil { mic.calls == 1 })
-        coach.stopLoop()
     }
 
     @Test("10b · Speech that never starts is asked for again")

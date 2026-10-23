@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// 翻译官. Mom is in charge of the conversation:
-/// 1. Before: she picks the other person's language and presses the big 开始对话 button.
+/// Dolmetscher. She is in charge of the conversation:
+/// 1. Before: she picks the other person's language and presses the big "Gespräch beginnen" button.
 ///    Nothing listens until she does.
-/// 2. During: the top half faces the other person (English or German, upside down), the
-///    bottom half faces Mom. One big 结束对话 button stops it. No 紧急 here, so nothing
-///    sits next to 结束对话 to be pressed by mistake; it's in the top bar before and after.
-/// 3. After: what was said stays on screen to read again, with 再开始 and 回首页.
+/// 2. During: the top half faces the other person (English or Chinese, upside down), the
+///    bottom half faces her. One big "Gespräch beenden" button stops it. No Notfall here, so
+///    nothing sits next to it to be pressed by mistake; it's in the top bar before and after.
+/// 3. After: what was said stays on screen to read again, with "Neu starten" and "Startseite".
 struct InterpreterView: View {
     private enum Phase { case ready, live, ended }
 
@@ -35,11 +35,11 @@ struct InterpreterView: View {
             // which explains what happened; the big button tries again.
             if case .failed = status, phase == .live { phase = .ready }
         }
-        .alert("还要继续翻译吗？", isPresented: $engine.askKeepListening) {
-            Button("继续") { engine.keepListening() }
-            Button("结束", role: .cancel) { endConversation() }
+        .alert("Weiter dolmetschen?", isPresented: $engine.askKeepListening) {
+            Button("Weiter") { engine.keepListening() }
+            Button("Beenden", role: .cancel) { endConversation() }
         } message: {
-            Text("已经 10 分钟没人说话了。")
+            Text("Seit 10 Minuten hat niemand gesprochen.")
         }
     }
 
@@ -55,37 +55,39 @@ struct InterpreterView: View {
         phase = engine.visibleLines.isEmpty ? .ready : .ended
     }
 
-    // MARK: - 1. Before: Mom starts it
+    // MARK: - 1. Before: she starts it
 
     private var readyScreen: some View {
         VStack(spacing: 16) {
-            TopBar(title: "翻译官", onBack: { app.home() })
+            TopBar(title: "Dolmetscher", onBack: { app.home() })
 
             if case .failed(let message) = engine.status {
-                ErrorCard(title: "翻译官停了", detail: message)
+                ErrorCard(title: "Der Dolmetscher hat angehalten", detail: message)
                     .padding(.horizontal, 16)
             } else {
-                MascotSays(text: "要和别人说话吗？", detail: "选好对方说的话，再按下面的大按钮。")
+                MascotSays(text: "Mit jemandem sprechen?", detail: "Wählen Sie die Sprache, dann den großen Knopf.")
                     .padding(.horizontal, 16)
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("对方说什么话？").font(.xa(22, .heavy)).foregroundStyle(Palette.ink)
-                BigToggle(left: PartnerLanguage.english.nameZH,
-                          right: PartnerLanguage.german.nameZH,
+                Text("Die andere Person spricht:").font(.xa(22, .heavy)).foregroundStyle(Palette.ink)
+                BigToggle(left: PartnerLanguage.english.nameDE,
+                          right: PartnerLanguage.chinese.nameDE,
                           isRight: Binding(
-                            get: { partner == .german },
-                            set: { partnerCode = ($0 ? PartnerLanguage.german : PartnerLanguage.english).rawValue }
+                            get: { partner == .chinese },
+                            set: { partnerCode = ($0 ? PartnerLanguage.chinese : PartnerLanguage.english).rawValue }
                           ))
+                Text("Sie sprechen Deutsch – ich übersetze in beide Richtungen.")
+                    .font(.xa(17, .semibold)).foregroundStyle(Palette.ink2)
             }
             .card()
             .padding(.horizontal, 16)
 
             Spacer(minLength: 8)
 
-            StartButton(title: "开始对话", action: startConversation)
+            StartButton(title: "Gespräch\nbeginnen", action: startConversation)
 
-            Text("按一下就开始。谁说话都行，我来翻译。")
+            Text("Einmal drücken genügt. Wer gerade spricht, ist egal.")
                 .font(.xa(19, .semibold))
                 .foregroundStyle(Palette.ink2)
                 .multilineTextAlignment(.center)
@@ -107,24 +109,24 @@ struct InterpreterView: View {
             VStack(spacing: 12) {
                 ConversationList(lines: engine.visibleLines, scrollKey: engine.scrollKey,
                                  showDemoTag: demo, onReplay: { engine.replay($0) }) {
-                    Text("先点“\(engine.partner.cantSpeakLabel)”，让对方知道怎么用。然后正常说话就行。")
+                    Text("Tippen Sie zuerst auf „\(engine.partner.cantSpeakLabel)“, damit die andere Person weiß, wie es geht. Dann sprechen Sie einfach ganz normal.")
                         .font(.xa(20, .bold)).foregroundStyle(Palette.ink2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 8)
                 }
 
                 HStack(spacing: 10) {
-                    SoftButton(title: "请说慢一点", systemImage: "tortoise.fill", fontSize: 19) {
-                        engine.say(engine.partner.slowDown, chinese: "请说慢一点")
+                    SoftButton(title: "Bitte langsamer", systemImage: "tortoise.fill", height: 64, fontSize: 18, lines: 2) {
+                        engine.say(engine.partner.slowDown, german: "Bitte sprechen Sie etwas langsamer.")
                     }
-                    SoftButton(title: engine.partner.cantSpeakLabel, systemImage: "speaker.wave.2.fill", fontSize: 19) {
-                        engine.say(engine.partner.cantSpeakPhrase, chinese: engine.partner.cantSpeakChinese)
+                    SoftButton(title: engine.partner.cantSpeakLabel, systemImage: "speaker.wave.2.fill", height: 64, fontSize: 18, lines: 2) {
+                        engine.say(engine.partner.cantSpeakPhrase, german: engine.partner.cantSpeakGerman)
                     }
                 }
                 .padding(.horizontal, 16)
                 .disabled(!engine.isRunning)
 
-                BigButton(title: "结束对话", systemImage: "stop.circle.fill", fill: Palette.ink, depth: nil,
+                BigButton(title: "Gespräch beenden", systemImage: "stop.circle.fill", fill: Palette.ink, depth: nil,
                           height: 76, fontSize: 28, action: endConversation)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 8)
@@ -146,7 +148,7 @@ struct InterpreterView: View {
                     .font(.system(size: 17, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(hex: 0x2D4A43))
             }
-            if let mom = engine.latestFromMom {
+            if let mom = engine.latestFromHer {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .center) {
                         Text(engine.partner.sheSaid).font(.system(size: 15, weight: .heavy, design: .rounded)).foregroundStyle(Color(hex: 0x3B5A52))
@@ -195,7 +197,7 @@ struct InterpreterView: View {
                 Text(statusDetail).font(.xa(17, .semibold)).foregroundStyle(Palette.ink2)
                     .lineLimit(1).minimumScaleFactor(0.8)
                 if let problem = engine.problem {
-                    // English on purpose: this is for Alex to read and fix.
+                    // English on purpose: this is for her family to read and fix.
                     Text("OpenAI: \(problem)")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Palette.red)
@@ -221,19 +223,19 @@ struct InterpreterView: View {
 
     private var statusTitle: String {
         switch engine.status {
-        case .idle: return "翻译官休息了"
-        case .connecting: return "正在准备……"
-        case .listening: return "正在听……"
-        case .speaking: return "正在翻译……"
-        case .failed: return "翻译官停了"
+        case .idle: return "Pause"
+        case .connecting: return "Ich bereite mich vor …"
+        case .listening: return "Ich höre zu …"
+        case .speaking: return "Ich übersetze …"
+        case .failed: return "Angehalten"
         }
     }
 
     private var statusDetail: String {
         switch engine.status {
-        case .listening, .speaking: return "对方说\(engine.partner.nameZH)，谁说话都行"
-        case .connecting, .idle: return "马上就好"
-        case .failed: return "可以再试一次"
+        case .listening, .speaking: return "Die andere Person spricht \(engine.partner.nameDE). Jeder darf sprechen."
+        case .connecting, .idle: return "Gleich geht es los"
+        case .failed: return "Bitte noch einmal versuchen"
         }
     }
 
@@ -241,18 +243,18 @@ struct InterpreterView: View {
 
     private var endedScreen: some View {
         VStack(spacing: 12) {
-            TopBar(title: "翻译官", onBack: { phase = .ready })
+            TopBar(title: "Dolmetscher", onBack: { phase = .ready })
 
-            MascotSays(text: "说完了！", detail: "刚才说的话都在下面，可以再看看。")
+            MascotSays(text: "Fertig!", detail: "Alles Gesagte steht unten. Sie können es noch einmal lesen.")
                 .padding(.horizontal, 16)
 
             ConversationList(lines: engine.visibleLines, scrollKey: "", showDemoTag: demo,
                              onReplay: { engine.replay($0) }) { EmptyView() }
 
             HStack(spacing: 10) {
-                BigButton(title: "再开始", systemImage: "mic.fill", fill: Palette.teal, depth: Palette.tealDeep,
+                BigButton(title: "Neu starten", systemImage: "mic.fill", fill: Palette.teal, depth: Palette.tealDeep,
                           height: 72, fontSize: 26, action: startConversation)
-                BigButton(title: "回首页", systemImage: "house.fill", fill: Palette.ink, depth: nil,
+                BigButton(title: "Startseite", systemImage: "house.fill", fill: Palette.ink, depth: nil,
                           height: 72, fontSize: 26) { app.home() }
             }
             .padding(.horizontal, 16)
@@ -275,7 +277,8 @@ private struct StartButton: View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: "mic.fill").font(.system(size: 54, weight: .bold))
-                Text(title).font(.xa(30, .heavy)).lineLimit(1).minimumScaleFactor(0.7)
+                Text(title).font(.xa(26, .heavy)).lineLimit(2).minimumScaleFactor(0.7)
+                    .multilineTextAlignment(.center)
             }
             .foregroundStyle(.white)
             .frame(width: 196, height: 196)
@@ -294,7 +297,7 @@ private struct StartButton: View {
             )
         }
         .buttonStyle(Squish())
-        .accessibilityLabel(title)
+        .accessibilityLabel(title.replacingOccurrences(of: "\n", with: " "))
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.easeOut(duration: 1.8).repeatForever(autoreverses: false)) { pulse = true }
@@ -319,8 +322,8 @@ private struct ConversationList<Empty: View>: View {
                     }
                     if lines.isEmpty { empty() }
                     ForEach(lines) { line in
-                        if line.fromMom {
-                            MomLine(text: (line.original.isEmpty ? line.translated : line.original).cleanedCaption)
+                        if line.fromHer {
+                            HerLine(text: (line.original.isEmpty ? line.translated : line.original).cleanedCaption)
                         } else {
                             TheirLine(text: line.translated.isEmpty ? "…" : line.translated.cleanedCaption) { onReplay(line) }
                         }
@@ -338,7 +341,7 @@ private struct ConversationList<Empty: View>: View {
     }
 }
 
-private struct MomLine: View {
+private struct HerLine: View {
     var text: String
     var body: some View {
         HStack {
@@ -359,9 +362,9 @@ private struct TheirLine: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("对方说").font(.xa(17, .heavy)).foregroundStyle(Palette.tealInk)
+                Text("Die andere Person sagt:").font(.xa(17, .heavy)).foregroundStyle(Palette.tealInk)
                 Spacer()
-                IconButton(systemImage: "speaker.wave.2.fill", label: "再听一遍", fill: Palette.mint,
+                IconButton(systemImage: "speaker.wave.2.fill", label: "Nochmal hören", fill: Palette.mint,
                            foreground: Palette.tealInk, size: 44, action: onReplay)
             }
             Text(text).font(.xa(26, .heavy)).foregroundStyle(Palette.ink)
@@ -380,7 +383,7 @@ private struct TheirLine: View {
 }
 
 private extension String {
-    /// Captions arrive as fragments that can start with a space or the previous sentence's "。".
+    /// Captions arrive as fragments that can start with a space or the previous sentence's ". " or "。".
     var cleanedCaption: String {
         String(drop(while: { $0.isWhitespace || $0.isPunctuation }))
     }

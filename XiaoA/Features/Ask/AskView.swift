@@ -1,7 +1,7 @@
 import SwiftUI
 import PhotosUI
 
-/// 问一问: ask anything in Mandarin, optionally about a photo. Answers come back in short Chinese.
+/// Fragen: ask anything in German, optionally about a photo. Answers come back in short, plain German.
 struct AskView: View {
     @EnvironmentObject private var app: AppState
     @EnvironmentObject private var store: ConfigStore
@@ -16,11 +16,11 @@ struct AskView: View {
     @State private var listenError: String?
     @FocusState private var fieldFocused: Bool
 
-    private let quickQuestions = ["这是什么意思？", "这个怎么用？", "我要注意什么？"]
+    private let quickQuestions = ["Was bedeutet das?", "Wie benutze ich das?", "Worauf muss ich achten?"]
 
     var body: some View {
         VStack(spacing: 0) {
-            TopBar(title: "问一问").padding(.bottom, 8)
+            TopBar(title: "Fragen").padding(.bottom, 8)
 
             ScrollViewReader { proxy in
                 ScrollView {
@@ -28,23 +28,23 @@ struct AskView: View {
                         photoArea
                         if model.turns.isEmpty { starter }
                         ForEach(model.turns) { turn in
-                            if turn.fromMom {
-                                MomBubble(text: turn.text)
+                            if turn.fromHer {
+                                HerBubble(text: turn.text)
                             } else {
                                 AnswerCard(text: turn.text,
                                            demo: turn.demo,
                                            streaming: model.streaming && turn.id == model.turns.last?.id,
-                                           onRead: { speaker.speakChinese(turn.text) },
-                                           onAskAlex: { forwardToAlex(turn) },
-                                           alexName: store.config.alexName,
-                                           canAskAlex: !store.config.alexPhone.isEmpty)
+                                           onRead: { speaker.speakGerman(turn.text) },
+                                           onAskContact: { forwardToContact(turn) },
+                                           contactName: store.config.contactLabel,
+                                           canAskContact: !store.config.contactPhone.isEmpty)
                             }
                         }
                         if listener.isListening {
-                            MomBubble(text: listener.transcript.isEmpty ? "正在听…" : listener.transcript, faded: true)
+                            HerBubble(text: listener.transcript.isEmpty ? "Ich höre zu…" : listener.transcript, faded: true)
                         }
                         if let error = model.error ?? listenError {
-                            ErrorCard(title: "没问成功", detail: error,
+                            ErrorCard(title: "Das hat nicht geklappt", detail: error,
                                       retry: model.lastFailedQuestion.map { q in { ask(q) } })
                         }
                         Color.clear.frame(height: 1).id("bottom")
@@ -104,7 +104,7 @@ struct AskView: View {
                 Image(uiImage: image).resizable().scaledToFill()
                     .frame(height: 160).frame(maxWidth: .infinity).clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                Text("你的照片")
+                Text("Ihr Foto")
                     .font(.xa(15, .bold)).foregroundStyle(.white)
                     .padding(.horizontal, 10).frame(height: 30)
                     .background(Capsule().fill(Color.black.opacity(0.75)))
@@ -112,7 +112,7 @@ struct AskView: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 Button { takePhoto() } label: {
-                    Label("换一张", systemImage: "camera.fill")
+                    Label("Neues Foto", systemImage: "camera.fill")
                         .font(.xa(17, .heavy)).foregroundStyle(Palette.ink)
                         .padding(.horizontal, 14).frame(height: 44)
                         .background(Capsule().fill(.white))
@@ -122,9 +122,9 @@ struct AskView: View {
             }
         } else {
             HStack(spacing: 12) {
-                SoftButton(title: "拍照", systemImage: "camera.fill", height: 64, fontSize: 22) { takePhoto() }
+                SoftButton(title: "Foto", systemImage: "camera.fill", height: 64, fontSize: 22) { takePhoto() }
                 PhotosPicker(selection: $libraryItem, matching: .images) {
-                    Label("相册", systemImage: "photo.on.rectangle")
+                    Label("Fotos", systemImage: "photo.on.rectangle")
                         .font(.xa(22, .heavy)).foregroundStyle(Palette.ink)
                         .frame(maxWidth: .infinity).frame(height: 64)
                         .chunky(.white, radius: 32, border: Palette.line)
@@ -136,8 +136,8 @@ struct AskView: View {
 
     private var starter: some View {
         VStack(alignment: .leading, spacing: 12) {
-            MascotSays(text: model.image == nil ? "有什么不懂的，问我吧！" : "想问这张图的什么？",
-                       detail: "按住下面的按钮说话", mascotSize: 60, textSize: 22)
+            MascotSays(text: model.image == nil ? "Fragen Sie mich, was Sie wissen möchten!" : "Was möchten Sie zu diesem Bild wissen?",
+                       detail: "Halten Sie den Knopf unten gedrückt und sprechen Sie", mascotSize: 60, textSize: 22)
             if model.image != nil {
                 ForEach(quickQuestions, id: \.self) { q in
                     Button { ask(q) } label: {
@@ -155,23 +155,23 @@ struct AskView: View {
     private var inputBar: some View {
         HStack(spacing: 12) {
             if typing {
-                TextField("打字问", text: $typed, axis: .vertical)
+                TextField("Frage tippen", text: $typed, axis: .vertical)
                     .font(.xa(22, .medium))
                     .lineLimit(1...3)
                     .focused($fieldFocused)
                     .padding(.horizontal, 16).padding(.vertical, 12)
                     .background(RoundedRectangle(cornerRadius: 24).strokeBorder(Palette.line, lineWidth: 3))
-                IconButton(systemImage: "paperplane.fill", label: "发送", fill: Palette.teal, foreground: .white, size: 64) {
+                IconButton(systemImage: "paperplane.fill", label: "Senden", fill: Palette.teal, foreground: .white, size: 64) {
                     ask(typed)
                     typed = ""
                 }
                 .disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty || model.streaming)
-                IconButton(systemImage: "mic.fill", label: "说话", fill: Palette.cream, size: 56) {
+                IconButton(systemImage: "mic.fill", label: "Sprechen", fill: Palette.cream, size: 56) {
                     typing = false
                     fieldFocused = false
                 }
             } else {
-                IconButton(systemImage: "keyboard", label: "打字", fill: .white, size: 72) {
+                IconButton(systemImage: "keyboard", label: "Tippen", fill: .white, size: 72) {
                     typing = true
                     fieldFocused = true
                 }
@@ -212,7 +212,7 @@ struct AskView: View {
             return
         }
         Task {
-            do { try await listener.start(locale: "zh-CN") }
+            do { try await listener.start(locale: "de-DE") }
             catch { listenError = error.localizedDescription }
         }
     }
@@ -228,20 +228,21 @@ struct AskView: View {
             if !text.trimmingCharacters(in: .whitespaces).isEmpty {
                 ask(text)
             } else if listenError == nil {
-                listenError = "没听清，按住按钮，说完再松开。"
+                listenError = "Das habe ich nicht verstanden. Knopf gedrückt halten, sprechen, dann loslassen."
             }
         }
     }
 
-    private func forwardToAlex(_ answer: AskModel.Turn) {
+    private func forwardToContact(_ answer: AskModel.Turn) {
         let question = model.question(before: answer) ?? ""
-        let body = "【小A】妈妈问：\(question)\n\n小A 的回答：\n\(answer.text)"
+        let who = store.config.herName.isEmpty ? "Ihre Frage" : "\(store.config.herName) fragt"
+        let body = "[Helferlein] \(who): \(question)\n\nAntwort von Helferlein:\n\(answer.text)"
         let jpeg = model.image?.resizedForUpload(maxSide: 1600).jpegData(compressionQuality: 0.8)
-        app.text(store.config.alexPhone, body: body, image: jpeg)
+        app.text(store.config.contactPhone, body: body, image: jpeg)
     }
 }
 
-private struct MomBubble: View {
+private struct HerBubble: View {
     var text: String
     var faded = false
     var body: some View {
@@ -265,15 +266,15 @@ private struct AnswerCard: View {
     var demo = false
     var streaming: Bool
     var onRead: () -> Void
-    var onAskAlex: () -> Void
-    var alexName: String
-    var canAskAlex: Bool
+    var onAskContact: () -> Void
+    var contactName: String
+    var canAskContact: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Mascot(mood: streaming ? .talking : .happy, size: 44, bobbing: streaming)
-                Text(streaming && text.isEmpty ? "我看看……" : "小A 说：").font(.xa(20, .heavy))
+                Text(streaming && text.isEmpty ? "Ich schaue nach…" : "Helferlein sagt:").font(.xa(20, .heavy))
                 Spacer(minLength: 0)
                 if demo { DemoTag() }
             }
@@ -286,10 +287,10 @@ private struct AnswerCard: View {
             }
             if !streaming && !text.isEmpty {
                 HStack(spacing: 10) {
-                    SoftButton(title: "朗读", systemImage: "speaker.wave.2.fill", action: onRead)
-                    if canAskAlex {
-                        BigButton(title: "问问 \(alexName)", systemImage: "paperplane.fill", fill: Palette.teal,
-                                  depth: Palette.tealDeep, height: 56, fontSize: 20, action: onAskAlex)
+                    SoftButton(title: "Vorlesen", systemImage: "speaker.wave.2.fill", action: onRead)
+                    if canAskContact {
+                        BigButton(title: "An \(contactName)", systemImage: "paperplane.fill", fill: Palette.teal,
+                                  depth: Palette.tealDeep, height: 56, fontSize: 20, action: onAskContact)
                     }
                 }
             }

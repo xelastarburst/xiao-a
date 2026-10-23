@@ -1,7 +1,7 @@
 import SwiftUI
 import Translation
 
-/// Downloads Apple's on-device English → Chinese pack so 看一看 works with no data.
+/// Downloads Apple's on-device English → German pack so Lesen works with no data.
 struct TranslationPrepView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var configuration: TranslationSession.Configuration?
@@ -9,7 +9,7 @@ struct TranslationPrepView: View {
     @State private var ready = false
 
     private let english = Locale.Language(identifier: "en")
-    private let chinese = Locale.Language(identifier: "zh-Hans")
+    private let german = Locale.Language(identifier: "de")
 
     var body: some View {
         NavigationStack {
@@ -20,7 +20,7 @@ struct TranslationPrepView: View {
                 Text(status).multilineTextAlignment(.center)
                 if !ready {
                     Button("Download") {
-                        configuration = TranslationSession.Configuration(source: english, target: chinese)
+                        configuration = TranslationSession.Configuration(source: english, target: german)
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -37,15 +37,15 @@ struct TranslationPrepView: View {
             }
             .task {
                 let availability = LanguageAvailability()
-                let result = await availability.status(from: english, to: chinese)
+                let result = await availability.status(from: english, to: german)
                 switch result {
                 case .installed:
-                    status = "Already downloaded. 看一看 works offline."
+                    status = "Already downloaded. Lesen works offline."
                     ready = true
                 case .supported:
-                    status = "Tap Download. iOS will ask to download English and Chinese (Simplified)."
+                    status = "Tap Download. iOS will ask to download English and German."
                 default:
-                    status = "This iPhone can't translate English to Chinese on-device."
+                    status = "This iPhone can't translate English to German on-device."
                 }
             }
             .navigationTitle("Offline translation")

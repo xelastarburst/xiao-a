@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 小A, drawn from the same 120×120 artwork as the mockups and app icon.
+/// Helferlein, drawn from the same 120×120 artwork as the mockups and app icon.
 struct Mascot: View {
     enum Mood { case happy, calm, talking }
 
@@ -68,6 +68,6 @@ struct Mascot: View {
             guard bobbing else { return }
             withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) { up = true }
         }
-        .accessibilityLabel("小A")
+        .accessibilityLabel("Helferlein")
     }
 }

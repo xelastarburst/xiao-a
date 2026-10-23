@@ -18,10 +18,10 @@ final class LookModel: ObservableObject {
     @Published var torchOn = false
     @Published var zoomed = false
     @Published var problem: String?
-    /// After 定住画面: paragraphs read from the full-resolution photo, translated in context.
+    /// After Bild anhalten: paragraphs read from the full-resolution photo, translated in context.
     @Published var photoBlocks: [PhotoBlock] = []
     @Published var readingClearly = false
-    /// What Claude says the photo shows, e.g. "药瓶上的标签".
+    /// What Claude says the photo shows, e.g. "Etikett einer Medikamentenflasche".
     @Published var photoWhat: String?
     @Published var claudeFailed = false
     private var freezeID = UUID()
@@ -32,7 +32,7 @@ final class LookModel: ObservableObject {
         DataScannerViewController.isSupported
     }
 
-    /// Simulator demo: no live-text scanner, so 看一看 shows a photo of a sign instead.
+    /// Simulator demo: no live-text scanner, so Lesen shows a photo of a sign instead.
     static var usesDemo: Bool { Demo.isOn && !isSupported }
 
     func requestCamera() async -> Bool {
@@ -62,7 +62,7 @@ final class LookModel: ObservableObject {
         do {
             try scanner.startScanning()
         } catch {
-            problem = "相机暂时打不开，请再试一次。"
+            problem = "Die Kamera geht gerade nicht. Bitte versuchen Sie es noch einmal."
         }
     }
 
@@ -96,12 +96,12 @@ final class LookModel: ObservableObject {
                 guard freezeID == id else { return }
                 photoWhat = result.what
                 for i in photoBlocks.indices {
-                    guard let zh = result.chinese[photoBlocks[i].id] else { continue }
+                    guard let zh = result.translated[photoBlocks[i].id] else { continue }
                     let clean = zh.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if clean.isEmpty { photoBlocks[i].hidden = true } else { photoBlocks[i].chinese = clean }
+                    if clean.isEmpty { photoBlocks[i].hidden = true } else { photoBlocks[i].translated = clean }
                 }
                 print(String(format: "[XA] Look: Claude translated %ld of %ld paragraphs in %.1fs (%@)",
-                             result.chinese.count, blocks.count, Date().timeIntervalSince(started), result.what ?? "-"))
+                             result.translated.count, blocks.count, Date().timeIntervalSince(started), result.what ?? "-"))
             } catch {
                 guard freezeID == id else { return }
                 print("[XA] Look: Claude failed: \(error)")
@@ -123,7 +123,7 @@ final class LookModel: ObservableObject {
         if zoomed { setZoom(true) }
     }
 
-    /// 放大: 2x zoom for small print.
+    /// Vergrößern: 2x zoom for small print.
     func setZoom(_ on: Bool) {
         zoomed = on
         guard let scanner else { return }
@@ -185,7 +185,7 @@ struct LiveTextScanner: UIViewControllerRepresentable {
             MainActor.assumeIsolated { model.update(from: allItems) }
         }
         func dataScanner(_ dataScanner: DataScannerViewController, becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable) {
-            MainActor.assumeIsolated { model.problem = "相机暂时用不了。" }
+            MainActor.assumeIsolated { model.problem = "Die Kamera geht gerade nicht." }
         }
     }
 }

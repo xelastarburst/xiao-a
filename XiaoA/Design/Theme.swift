@@ -11,7 +11,7 @@ extension Color {
     }
 }
 
-/// The 小A palette, taken from the approved mockups.
+/// The Helferlein palette (same as 小A), taken from the approved mockups.
 enum Palette {
     static let cream = Color(hex: 0xFFF1E8)
     static let paper = Color.white

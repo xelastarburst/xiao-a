@@ -1,7 +1,7 @@
 import SwiftUI
 import Translation
 
-/// English → Simplified Chinese for 看一看, in two layers:
+/// English → German for Lesen, in two layers:
 /// 1. On-device (Apple), instant and offline, one line at a time.
 /// 2. In context (Claude): when the camera rests on something for a moment, everything in view
 ///    is translated together, so a menu reads like a menu and a label like a label. These replace
@@ -23,7 +23,7 @@ final class TranslationEngine: ObservableObject {
 
     let configuration = TranslationSession.Configuration(
         source: Locale.Language(identifier: "en"),
-        target: Locale.Language(identifier: "zh-Hans")
+        target: Locale.Language(identifier: "de")
     )
 
     private var pending = Set<String>()

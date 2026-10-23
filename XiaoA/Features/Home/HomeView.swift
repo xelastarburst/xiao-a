@@ -3,16 +3,17 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject private var app: AppState
     @EnvironmentObject private var store: ConfigStore
-    @EnvironmentObject private var learning: LearningStore
     @State private var showPIN = false
 
     private var greeting: String {
+        let hello: String
         switch Calendar.current.component(.hour, from: Date()) {
-        case 5..<11: return "早上好"
-        case 11..<13: return "中午好"
-        case 13..<18: return "下午好"
-        default: return "晚上好"
+        case 5..<11: hello = "Guten Morgen"
+        case 11..<18: hello = "Guten Tag"
+        default: hello = "Guten Abend"
         }
+        let name = store.config.herName.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "\(hello)!" : "\(hello), \(name)!"
     }
 
     var body: some View {
@@ -23,12 +24,13 @@ struct HomeView: View {
                         Haptics.success()
                         showPIN = true
                     }
-                    .accessibilityHint("Alex: long-press for settings")
+                    .accessibilityHint("Family: long-press for settings")
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(greeting)，\(store.config.momNameZH)！")
-                        .font(.xa(28, .heavy)).lineLimit(1).minimumScaleFactor(0.7)
-                    Text(store.isSetUp ? "今天想做什么？" : "请让 \(store.config.alexName) 先帮你设置一下")
-                        .font(.xa(20, .medium)).foregroundStyle(Palette.ink2)
+                    Text(greeting)
+                        .font(.xa(26, .heavy)).lineLimit(1).minimumScaleFactor(0.6)
+                    Text(store.isSetUp ? "Was möchten Sie heute machen?" : "Bitte lassen Sie Helferlein zuerst von Ihrer Familie einrichten.")
+                        .font(.xa(19, .medium)).foregroundStyle(Palette.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 18).padding(.vertical, 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -42,33 +44,31 @@ struct HomeView: View {
 
             VStack(spacing: 12) {
                 HStack(spacing: 12) {
-                    FeatureTile(title: "看一看", subtitle: "拍英文看中文", symbol: "camera.viewfinder",
+                    FeatureTile(title: "Lesen", subtitle: "Englisch auf Deutsch sehen", symbol: "camera.viewfinder",
                                 fill: Palette.peach, depth: Palette.peachDeep) { app.go(.look) }
-                    FeatureTile(title: "问一问", subtitle: "不懂就问我", symbol: "questionmark.bubble",
+                    FeatureTile(title: "Fragen", subtitle: "Fragen Sie mich alles", symbol: "questionmark.bubble",
                                 fill: Palette.sky, depth: Palette.skyDeep) { app.ask(about: nil) }
                 }
                 .frame(maxHeight: .infinity)
-                HStack(spacing: 12) {
-                    FeatureTile(title: "翻译官", subtitle: "帮你和人说话", symbol: "bubble.left.and.bubble.right",
-                                fill: Palette.sage, depth: Palette.sageDeep) { app.go(.interpreter) }
-                    FeatureTile(title: "学英语", subtitle: "每天 30 分钟", symbol: "book",
-                                fill: Palette.butter, depth: Palette.butterDeep,
-                                badge: learning.streak > 0 ? "\(learning.streak)天" : nil) { app.go(.learn) }
-                }
-                .frame(maxHeight: .infinity)
+                WideTile(title: "Dolmetscher", subtitle: "Mit Englisch- und Chinesisch-Sprechenden",
+                         symbol: "bubble.left.and.bubble.right",
+                         fill: Palette.sage, depth: Palette.sageDeep) { app.go(.interpreter) }
+                    .frame(maxHeight: .infinity)
             }
             .frame(maxHeight: .infinity)
 
-            // A slim bar, not a fifth big tile: rides are occasional, the four tiles are daily.
-            RideBar { app.go(.ride) }
+            // A slim bar, not another big tile: rides are occasional, the tiles above are daily.
+            RideBar(contact: store.config.contactLabel) { app.go(.ride) }
 
             Button { app.go(.emergency(practice: false)) } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "phone.fill").font(.system(size: 28, weight: .bold))
-                    Text("紧急").font(.xa(30, .heavy)).tracking(2)
-                    Text("一按就找人帮忙").font(.xa(20, .medium))
+                    Text("Notfall").font(.xa(30, .heavy)).tracking(0.5)
+                    Text("Sofort Hilfe holen").font(.xa(19, .medium))
+                        .lineLimit(1).minimumScaleFactor(0.7)
                 }
                 .foregroundStyle(.white)
+                .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity)
                 .frame(height: 80)
                 .chunky(Palette.red, depth: Palette.redDeep, radius: 40)
@@ -90,7 +90,6 @@ private struct FeatureTile: View {
     var symbol: String
     var fill: Color
     var depth: Color
-    var badge: String? = nil
     var action: () -> Void
 
     var body: some View {
@@ -106,33 +105,55 @@ private struct FeatureTile: View {
                 }
                 Spacer(minLength: 8)
                 Text(title).font(.xa(30, .heavy)).foregroundStyle(Palette.ink)
-                Text(subtitle).font(.xa(19, .medium)).foregroundStyle(Palette.ink.opacity(0.75))
                     .lineLimit(1).minimumScaleFactor(0.7)
+                Text(subtitle).font(.xa(17, .bold)).foregroundStyle(Palette.ink.opacity(0.78))
+                    .lineLimit(2).minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .chunky(fill, depth: depth, radius: 28)
-            .overlay(alignment: .topTrailing) {
-                if let badge {
-                    HStack(spacing: 3) {
-                        Image(systemName: "star.fill").foregroundStyle(Palette.gold)
-                        Text(badge).foregroundStyle(Palette.ink)
-                    }
-                    .font(.xa(17, .heavy))
-                    .padding(.horizontal, 10).frame(height: 32)
-                    .background(Capsule().fill(.white))
-                    .overlay(Capsule().strokeBorder(Palette.gold, lineWidth: 2))
-                    .fixedSize()
-                    .offset(x: 4, y: -10)
-                    .accessibilityLabel("已经连续学了\(badge)")
+        }
+        .buttonStyle(Squish())
+    }
+}
+
+/// The full-width Dolmetscher tile: icon on the left, title and subtitle beside it.
+private struct WideTile: View {
+    var title: String
+    var subtitle: String
+    var symbol: String
+    var fill: Color
+    var depth: Color
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Image(systemName: symbol)
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                    .frame(width: 64, height: 64)
+                    .background(Circle().fill(.white))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.xa(30, .heavy)).foregroundStyle(Palette.ink)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    Text(subtitle).font(.xa(17, .bold)).foregroundStyle(Palette.ink.opacity(0.78))
+                        .lineLimit(2).minimumScaleFactor(0.8)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 20).padding(.vertical, 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .chunky(fill, depth: depth, radius: 28)
         }
         .buttonStyle(Squish())
     }
 }
 
 private struct RideBar: View {
+    var contact: String
     var action: () -> Void
     var body: some View {
         Button(action: action) {
@@ -143,8 +164,8 @@ private struct RideBar: View {
                     .frame(width: 48, height: 48)
                     .background(Circle().fill(.white))
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("叫车").font(.xa(27, .heavy)).foregroundStyle(Palette.ink)
-                    Text("小A 帮你叫车").font(.xa(18, .medium)).foregroundStyle(Palette.lilacInk)
+                    Text("Fahrt").font(.xa(26, .heavy)).foregroundStyle(Palette.ink)
+                    Text("\(contact) bestellt ein Auto").font(.xa(16, .bold)).foregroundStyle(Palette.lilacInk)
                         .lineLimit(1).minimumScaleFactor(0.7)
                 }
                 Spacer(minLength: 4)

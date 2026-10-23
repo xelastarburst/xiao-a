@@ -69,7 +69,7 @@ final class FakeVoice {
     }
 }
 
-/// Scripted microphone tries for the Learn coach. Once the script runs out it waits (until cancelled).
+/// Scripted microphone answers. Once the script runs out it waits (until cancelled).
 @MainActor
 final class ScriptedMic {
     var answers: [String]

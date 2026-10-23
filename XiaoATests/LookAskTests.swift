@@ -2,43 +2,43 @@ import Foundation
 import Testing
 @testable import XiaoA
 
-@Suite("看一看 · Look")
+@Suite("Lesen · Look")
 @MainActor
 struct LookTests {
 
     @Test("Claude's reply: what the photo is, and each numbered line, whatever the punctuation")
     func parsesReply() {
         let r = ClearRead.parse("""
-        WHAT：药瓶标签
-        1: 布洛芬
-        2. 每次 1 片，每天 3 次
+        WHAT：Etikett einer Medikamentenflasche
+        1: Ibuprofen
+        2. 1 Tablette, 3-mal täglich
         3、
-        4) 饭后服用
-          5 ： 儿童勿近
+        4) Nach dem Essen einnehmen
+          5 ： Für Kinder unzugänglich aufbewahren
         12345: too long a number
         Note: ignore me
         """)
-        #expect(r.what == "药瓶标签")
-        #expect(r.chinese[1] == "布洛芬")
-        #expect(r.chinese[2] == "每次 1 片，每天 3 次")
-        #expect(r.chinese[3] == "")                 // not real text: left as is on screen
-        #expect(r.chinese[4] == "饭后服用")
-        #expect(r.chinese[5] == "儿童勿近")
-        #expect(r.chinese.count == 5)
+        #expect(r.what == "Etikett einer Medikamentenflasche")
+        #expect(r.translated[1] == "Ibuprofen")
+        #expect(r.translated[2] == "1 Tablette, 3-mal täglich")
+        #expect(r.translated[3] == "")                 // not real text: left as is on screen
+        #expect(r.translated[4] == "Nach dem Essen einnehmen")
+        #expect(r.translated[5] == "Für Kinder unzugänglich aufbewahren")
+        #expect(r.translated.count == 5)
     }
 
     @Test("Prices, doses and phone numbers survive exactly as written")
     func keepsNumbers() {
-        let r = ClearRead.parse("1: 拿铁咖啡 $4.50\n2: 电话 (206) 555-0123\n3: 每 4-6 小时 1 粒")
-        #expect(r.chinese[1] == "拿铁咖啡 $4.50")
-        #expect(r.chinese[2] == "电话 (206) 555-0123")
-        #expect(r.chinese[3] == "每 4-6 小时 1 粒")
+        let r = ClearRead.parse("1: Milchkaffee $4.50\n2: Telefon: (206) 555-0123\n3: alle 4–6 Stunden 1 Kapsel")
+        #expect(r.translated[1] == "Milchkaffee $4.50")
+        #expect(r.translated[2] == "Telefon: (206) 555-0123")
+        #expect(r.translated[3] == "alle 4–6 Stunden 1 Kapsel")
     }
 
     @Test("An empty or chatty reply gives nothing, never a crash")
     func junkReply() {
-        #expect(ClearRead.parse("").chinese.isEmpty)
-        #expect(ClearRead.parse("Sorry, I can't read this photo.").chinese.isEmpty)
+        #expect(ClearRead.parse("").translated.isEmpty)
+        #expect(ClearRead.parse("Sorry, I can't read this photo.").translated.isEmpty)
         #expect(ClearRead.parse("WHAT:").what == nil)
     }
 
@@ -46,12 +46,12 @@ struct LookTests {
     func prefersContext() {
         let engine = TranslationEngine()
         #expect(engine.translation(for: "EXIT") == nil)
-        engine.cache["EXIT"] = "出口"
-        #expect(engine.translation(for: "EXIT") == "出口")
-        engine.contextual["EXIT"] = "安全出口"
-        #expect(engine.translation(for: "EXIT") == "安全出口")
+        engine.cache["EXIT"] = "Ausgang"
+        #expect(engine.translation(for: "EXIT") == "Ausgang")
+        engine.contextual["EXIT"] = "Notausgang"
+        #expect(engine.translation(for: "EXIT") == "Notausgang")
         engine.contextual["EXIT"] = ""
-        #expect(engine.translation(for: "EXIT") == "出口")
+        #expect(engine.translation(for: "EXIT") == "Ausgang")
     }
 
     @Test("All in context only when every visible line has Claude's translation")
@@ -59,9 +59,9 @@ struct LookTests {
         let engine = TranslationEngine()
         #expect(!engine.allInContext)
         engine.noteVisible(["SALE", "50% OFF"])
-        engine.contextual["SALE"] = "特价"
+        engine.contextual["SALE"] = "Angebot"
         #expect(!engine.allInContext)
-        engine.contextual["50% OFF"] = "五折"
+        engine.contextual["50% OFF"] = "50 % Rabatt"
         #expect(engine.allInContext)
     }
 
@@ -74,7 +74,7 @@ struct LookTests {
     }
 }
 
-@Suite("问一问 · Ask")
+@Suite("Fragen · Ask")
 @MainActor
 struct AskTests {
     typealias Turn = AskModel.Turn
@@ -82,10 +82,10 @@ struct AskTests {
     @Test("The photo goes with her first question only; empty turns are dropped")
     func conversationForClaude() throws {
         let turns = [
-            Turn(fromMom: true, text: "这是什么？"),
-            Turn(fromMom: false, text: "这是药。"),
-            Turn(fromMom: false, text: ""),
-            Turn(fromMom: true, text: "一天吃几次？")
+            Turn(fromHer: true, text: "Was ist das?"),
+            Turn(fromHer: false, text: "Das ist ein Medikament."),
+            Turn(fromHer: false, text: ""),
+            Turn(fromHer: true, text: "Wie oft am Tag?")
         ]
         let messages = AskModel.messages(turns: turns, imageBlock: ["type": "image", "source": "x"])
         #expect(messages.count == 3)
@@ -93,8 +93,8 @@ struct AskTests {
         let first = try #require(messages[0]["content"] as? [[String: Any]])
         #expect(first.count == 2)
         #expect(first[0]["type"] as? String == "image")
-        #expect(first[1]["text"] as? String == "这是什么？")
-        #expect(messages[1]["content"] as? String == "这是药。")
+        #expect(first[1]["text"] as? String == "Was ist das?")
+        #expect(messages[1]["content"] as? String == "Das ist ein Medikament.")
         let third = try #require(messages[2]["content"] as? [[String: Any]])
         #expect(third.count == 1)
         #expect(third[0]["type"] as? String == "text")
@@ -102,26 +102,37 @@ struct AskTests {
 
     @Test("Without a photo, questions are plain text")
     func noPhoto() throws {
-        let messages = AskModel.messages(turns: [Turn(fromMom: true, text: "你好")], imageBlock: nil)
+        let messages = AskModel.messages(turns: [Turn(fromHer: true, text: "Hallo")], imageBlock: nil)
         let content = try #require(messages.first?["content"] as? [[String: Any]])
         #expect(content.count == 1)
         #expect(JSONSerialization.isValidJSONObject(messages))
     }
 
-    @Test("Ground rules: Chinese, short, no made-up doses, scam warnings, the emergency button")
+    @Test("Ground rules: German with Sie, short, no made-up doses, scam warnings, the Notfall button")
     func groundRules() {
         var config = AppConfig()
-        config.alexName = "Bob"
-        config.askContext = "她住在 Seattle"
+        config.herName = "Frau Weber"
+        config.contactName = "Sabine"
+        config.askContext = "Sie wohnt in Seattle"
         config.homeAddressEN = "1 Main St, Seattle"
         let prompt = AskModel.systemPrompt(config)
-        #expect(prompt.contains("永远用简体中文回答"))
-        #expect(prompt.contains("绝对不要编造剂量"))
-        #expect(prompt.contains("诈骗"))
-        #expect(prompt.contains("紧急"))
-        #expect(prompt.contains("先问Bob"))
-        #expect(prompt.contains("她住在 Seattle"))
+        #expect(prompt.contains("Antworte immer auf Deutsch"))
+        #expect(prompt.contains("„Sie“"))
+        #expect(prompt.contains("Erfinde niemals Dosierung"))
+        #expect(prompt.contains("Betrug"))
+        #expect(prompt.contains("„Notfall“"))
+        #expect(prompt.contains("zuerst Sabine fragen"))
+        #expect(prompt.contains("(Frau Weber)"))
+        #expect(prompt.contains("Sie wohnt in Seattle"))
         #expect(prompt.contains("1 Main St, Seattle"))
+    }
+
+    @Test("Before setup, the family is simply 'Ihre Familie'")
+    func noContactYet() {
+        let prompt = AskModel.systemPrompt(AppConfig())
+        #expect(prompt.contains("zuerst Ihre Familie fragen"))
+        #expect(!prompt.contains("Ansprechperson"))
+        #expect(!prompt.contains("()"))
     }
 
     @Test("Privacy: her medical card is never part of what is sent to Claude")
@@ -131,19 +142,19 @@ struct AskTests {
         config.medical.policyNumber = "SECRET-POLICY"
         config.medical.memberID = "SECRET-MEMBER"
         config.medical.conditionsEN = "SECRET-CONDITION"
-        config.medical.conditionsZH = "秘密病情"
+        config.medical.conditionsDE = "GEHEIMER-BEFUND"
         config.medical.medicationsEN = "SECRET-MEDICATION"
         config.medical.allergiesEN = "SECRET-ALLERGY"
         config.medical.doctorName = "SECRET-DOCTOR"
         let prompt = AskModel.systemPrompt(config)
         #expect(!prompt.contains("SECRET"))
-        #expect(!prompt.contains("秘密"))
+        #expect(!prompt.contains("GEHEIM"))
     }
 
     @Test("Answers point back to her question")
     func questionBeforeAnswer() {
         let model = AskModel()
         #expect(model.latestAnswer == nil)
-        #expect(model.question(before: Turn(fromMom: false, text: "x")) == nil)
+        #expect(model.question(before: Turn(fromHer: false, text: "x")) == nil)
     }
 }

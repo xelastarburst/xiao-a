@@ -1,7 +1,7 @@
 import Foundation
 
 /// One-shot transcription of a short recording with OpenAI (gpt-4o-transcribe).
-/// Used in 学英语 when Apple's recognizer heard nothing, so a try is still checked.
+/// One-shot transcription of a short recording (kept from 小A; not used by a screen here).
 enum OpenAITranscribe {
     static let model = "gpt-4o-transcribe"
 

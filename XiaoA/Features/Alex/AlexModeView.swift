@@ -1,10 +1,9 @@
 import SwiftUI
 import PhotosUI
 
-/// Alex's settings. English UI on purpose: only Alex uses this.
+/// Settings, for her family. English UI on purpose: the family sets the app up.
 struct AlexModeView: View {
     @EnvironmentObject private var store: ConfigStore
-    @EnvironmentObject private var learning: LearningStore
     @EnvironmentObject private var app: AppState
 
     @State private var openAIKey = ""
@@ -19,43 +18,35 @@ struct AlexModeView: View {
     @State private var newPIN = ""
     @State private var pinStatus = ""
     @AppStorage("demoSound") private var demoSound = false
-    @AppStorage(InterpreterVoice.momKey) private var voiceForMom = InterpreterVoice.defaultID
-    @AppStorage(LearnSpeed.key) private var learnSpeed = LearnSpeed.slow.rawValue
+    @AppStorage(InterpreterVoice.herKey) private var voiceForHer = InterpreterVoice.defaultID
     @AppStorage(InterpreterVoice.othersKey) private var voiceForOthers = InterpreterVoice.defaultID
-
-    private var reminderTime: Binding<Date> {
-        Binding {
-            Calendar.current.date(bySettingHour: store.config.reminderHour,
-                                  minute: store.config.reminderMinute, second: 0, of: Date()) ?? Date()
-        } set: { date in
-            let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
-            store.config.reminderHour = parts.hour ?? 10
-            store.config.reminderMinute = parts.minute ?? 0
-        }
-    }
 
     var body: some View {
         Form {
-            Section("Mom") {
-                LabeledField("Name in Chinese", text: $store.config.momNameZH, prompt: "妈妈")
-                LabeledField("Name in English", text: $store.config.momNameEN, prompt: "Used in lessons and the medical card")
-                LabeledField("Mom's phone", text: $store.config.momPhone, prompt: "+1 408 555 0100", keyboard: .phonePad)
+            Section {
+                LabeledField("What the app calls her", text: $store.config.herName, prompt: "e.g. Frau Weber or Oma Inge")
+                LabeledField("Full name in English", text: $store.config.herNameEN, prompt: "For the medical card")
+                LabeledField("Her phone", text: $store.config.herPhone, prompt: "+1 408 555 0100", keyboard: .phonePad)
+            } header: {
+                Text("Her")
+            } footer: {
+                Text("The home screen greets her with “Guten Morgen, …!”. Leave the first field empty for no name.")
             }
 
             Section {
-                LabeledField("Your name", text: $store.config.alexName, prompt: "Alex")
-                LabeledField("Your phone", text: $store.config.alexPhone, prompt: "+1 408 555 0199", keyboard: .phonePad)
+                LabeledField("Name she knows you by", text: $store.config.contactName, prompt: "e.g. Sabine")
+                LabeledField("Your phone", text: $store.config.contactPhone, prompt: "+1 408 555 0199", keyboard: .phonePad)
             } header: {
-                Text("You")
+                Text("Her family contact")
             } footer: {
-                Text("Call Alex, Text Alex, ride requests and Ask Alex all go to this number.")
+                Text("Notfall calls and texts, ride requests and “send to family” in Fragen all go to this number. Until a name is set, the app says “Ihre Familie”.")
             }
 
             Section {
                 StackedField("Home address in English", text: $store.config.homeAddressEN,
                              prompt: "123 Main St, San Jose, CA 95112")
-                StackedField("Home address in Chinese (optional)", text: $store.config.homeAddressZH,
-                             prompt: "圣何塞 Main 街 123 号")
+                StackedField("Home address as she says it (optional)", text: $store.config.homeAddressDE,
+                             prompt: "123 Main Street, San Jose")
             } header: {
                 Text("Home")
             } footer: {
@@ -69,7 +60,7 @@ struct AlexModeView: View {
                     } label: {
                         Label {
                             VStack(alignment: .leading) {
-                                Text(place.nameZH).foregroundStyle(.primary)
+                                Text(place.nameDE).foregroundStyle(.primary)
                                 Text(place.addressEN).font(.caption).foregroundStyle(.secondary)
                             }
                         } icon: {
@@ -79,14 +70,14 @@ struct AlexModeView: View {
                 }
                 .onDelete { store.config.places.remove(atOffsets: $0) }
                 Button {
-                    editingPlace = Place(nameZH: "", addressEN: "")
+                    editingPlace = Place(nameDE: "", addressEN: "")
                 } label: {
                     Label("Add a place", systemImage: "plus")
                 }
             } header: {
                 Text("Places for rides")
             } footer: {
-                Text("Home is added automatically. Use short Chinese names Mom recognizes, like 超市 or 公园.")
+                Text("Home is added automatically. Use short German names she recognizes, like Supermarkt or Arztpraxis.")
             }
 
             medicalSection
@@ -94,7 +85,7 @@ struct AlexModeView: View {
             Section {
                 SecureField("OpenAI API key (interpreter)", text: $openAIKey)
                 Text("OpenAI: \(APIKeys.masked(.openAI))").font(.caption).foregroundStyle(.secondary)
-                SecureField("Claude API key (Ask, coach tips)", text: $anthropicKey)
+                SecureField("Claude API key (Fragen, Lesen, interpreter)", text: $anthropicKey)
                 Text("Claude: \(APIKeys.masked(.anthropic))").font(.caption).foregroundStyle(.secondary)
                 Button("Save keys") {
                     if !openAIKey.isEmpty { APIKeys.set(openAIKey, for: .openAI) }
@@ -129,49 +120,47 @@ struct AlexModeView: View {
             } header: {
                 Text("API keys")
             } footer: {
-                Text("Stored in the Keychain on this phone only. Leave a field empty to keep the saved key. A phone with no saved key uses the keys built into the app (BundledKeys.json on Alex's Mac).")
+                Text("Stored in the Keychain on this phone only. Leave a field empty to keep the saved key. A phone with no saved key uses the keys built into the app (BundledKeys.json on the Mac it was built on).")
             }
 
             Section {
                 NavigationLink {
-                    VoiceChooser(title: "Mom's words", key: InterpreterVoice.momKey, chinese: false)
+                    VoiceChooser(title: "Her words", key: InterpreterVoice.herKey, toHer: false)
                 } label: {
-                    LabeledContent("Mom's words (English/German)", value: InterpreterVoice.named(voiceForMom).name)
+                    LabeledContent("Her words (English/Chinese)", value: InterpreterVoice.named(voiceForHer).name)
                 }
                 NavigationLink {
-                    VoiceChooser(title: "Others' words", key: InterpreterVoice.othersKey, chinese: true)
+                    VoiceChooser(title: "Others' words", key: InterpreterVoice.othersKey, toHer: true)
                 } label: {
-                    LabeledContent("Others' words (Chinese)", value: InterpreterVoice.named(voiceForOthers).name)
+                    LabeledContent("Others' words (German)", value: InterpreterVoice.named(voiceForOthers).name)
                 }
             } header: {
                 Text("Interpreter voices")
             } footer: {
-                Text("The voice 翻译官 uses for each side. Tap a side to hear the voices and pick one.")
+                Text("The voice the Dolmetscher uses for each side. Tap a side to hear the voices and pick one.")
             }
 
             Section {
-                TextField("e.g. We live in San Jose. She shops at 99 Ranch on Saturdays. Her doctor is Dr. Lee.",
+                TextField("e.g. She lives in San Jose. She shops at Trader Joe's on Saturdays. Her doctor is Dr. Lee.",
                           text: $store.config.askContext, axis: .vertical)
                     .lineLimit(3...8)
             } header: {
-                Text("What 小A should know (Ask)")
+                Text("What Helferlein should know (Fragen)")
             } footer: {
-                Text("Sent to Claude with Mom's questions so answers feel personal. Medical card details are never sent.")
+                Text("Sent to Claude with her questions so answers feel personal. Medical card details are never sent.")
             }
 
-            learningSection
-
             Section("Rides") {
-                NavigationLink("Send car details to Mom") { RideDetailsComposer() }
+                NavigationLink("Send car details to her") { RideDetailsComposer() }
             }
 
             Section {
-                Button("Download offline translation (English → Chinese)") { showTranslationPrep = true }
+                Button("Download offline translation (English → German)") { showTranslationPrep = true }
                 Button("Run an emergency practice drill") { app.go(.emergency(practice: true)) }
             } header: {
                 Text("Setup")
             } footer: {
-                Text("Do the download on Wi-Fi so 看一看 works without data. The drill never calls anyone.")
+                Text("Do the download on Wi-Fi so Lesen works without data. The drill never calls anyone.")
             }
 
             Section {
@@ -186,9 +175,9 @@ struct AlexModeView: View {
                     Text(pinStatus).font(.caption).foregroundStyle(.green)
                 }
             } header: {
-                Text("Alex mode PIN")
+                Text("Settings PIN")
             } footer: {
-                Text("To open Alex mode: long-press 小A on the home screen for 2 seconds.")
+                Text("To open Settings: long-press the little orange on the home screen for 2 seconds.")
             }
 
             #if DEBUG && targetEnvironment(simulator)
@@ -198,11 +187,11 @@ struct AlexModeView: View {
             } header: {
                 Text("Simulator testing")
             } footer: {
-                Text("Only in the simulator. Without API keys, Look, Ask, the interpreter and the coach's microphone play a short scripted demo, marked 模拟器示例. Sound is off so the Mac stays quiet.")
+                Text("Only in the simulator. Without API keys, Lesen, Fragen and the Dolmetscher play a short scripted demo, marked Beispiel. Sound is off so the Mac stays quiet.")
             }
             #endif
         }
-        .navigationTitle("Alex mode")
+        .navigationTitle("Settings")
         .sheet(item: $editingPlace) { place in
             PlaceEditor(place: place) { saved in
                 if let i = store.config.places.firstIndex(where: { $0.id == saved.id }) {
@@ -215,11 +204,6 @@ struct AlexModeView: View {
         .sheet(isPresented: $showTranslationPrep) { TranslationPrepView() }
         .onChange(of: frontItem) { _, item in load(item, side: .front) }
         .onChange(of: backItem) { _, item in load(item, side: .back) }
-        .onDisappear {
-            LessonReminder.reschedule(hour: store.config.reminderHour,
-                                      minute: store.config.reminderMinute,
-                                      enabled: store.config.remindersOn)
-        }
     }
 
     private var medicalSection: some View {
@@ -229,11 +213,11 @@ struct AlexModeView: View {
             LabeledField("Member ID", text: $store.config.medical.memberID, prompt: "")
             LabeledField("Insurer phone", text: $store.config.medical.insurerPhone, prompt: "", keyboard: .phonePad)
             StackedField("Conditions (English, for staff)", text: $store.config.medical.conditionsEN)
-            StackedField("Conditions (Chinese, for Mom)", text: $store.config.medical.conditionsZH)
+            StackedField("Conditions (German, for her)", text: $store.config.medical.conditionsDE)
             StackedField("Medications (English)", text: $store.config.medical.medicationsEN)
-            StackedField("Medications (Chinese)", text: $store.config.medical.medicationsZH)
+            StackedField("Medications (German)", text: $store.config.medical.medicationsDE)
             StackedField("Allergies (English)", text: $store.config.medical.allergiesEN)
-            StackedField("Allergies (Chinese)", text: $store.config.medical.allergiesZH)
+            StackedField("Allergies (German)", text: $store.config.medical.allergiesDE)
             LabeledField("Doctor", text: $store.config.medical.doctorName, prompt: "")
             LabeledField("Doctor phone", text: $store.config.medical.doctorPhone, prompt: "", keyboard: .phonePad)
             cardRow("Insurance card (front)", side: .front, selection: $frontItem)
@@ -257,39 +241,6 @@ struct AlexModeView: View {
                 Button(role: .destructive) { store.removeCard(side) } label: { Image(systemName: "trash") }
                     .buttonStyle(.borderless)
             }
-        }
-    }
-
-    private var learningSection: some View {
-        Section {
-            Toggle("Daily reminder", isOn: $store.config.remindersOn)
-            if store.config.remindersOn {
-                DatePicker("Reminder time", selection: reminderTime, displayedComponents: .hourAndMinute)
-            }
-            Stepper("New phrases per day: \(store.config.newPhrasesPerDay)",
-                    value: $store.config.newPhrasesPerDay, in: 2...10)
-            Toggle("Strict pronunciation", isOn: $store.config.strictPronunciation)
-            Picker("English reading speed", selection: $learnSpeed) {
-                ForEach(LearnSpeed.allCases) { speed in
-                    Text(speed.label).tag(speed.rawValue)
-                }
-            }
-            LabeledContent("Days completed", value: "\(learning.data.daysDone.count)")
-            LabeledContent("Current streak", value: "\(learning.streak) days")
-            LabeledContent("Phrases learned", value: "\(learning.masteredCount) of \(learning.allPhrases(for: store.config).count)")
-            let struggling = learning.strugglingPhrases(for: store.config)
-            if !struggling.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Needs practice").font(.subheadline.bold())
-                    ForEach(struggling) { p in
-                        Text("\(p.en)  ·  \(p.zh)").font(.callout)
-                    }
-                }
-            }
-        } header: {
-            Text("Learning")
-        } footer: {
-            Text("Lessons are hands-free: 小A reads the phrase, listens, and keeps coaching until she says it. Normal: passes when speech recognition clearly understands her. Strict: every word must be recognized.")
         }
     }
 
@@ -355,7 +306,7 @@ private struct PlaceEditor: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Name Mom sees, in Chinese (e.g. 超市)", text: $place.nameZH)
+                    TextField("Name she sees, in German (e.g. Supermarkt)", text: $place.nameDE)
                     TextField("Address in English", text: $place.addressEN, axis: .vertical)
                 } footer: {
                     Text("The English address is shown to the driver and sent with ride requests.")
@@ -375,7 +326,7 @@ private struct PlaceEditor: View {
                         onSave(place)
                         dismiss()
                     }
-                    .disabled(place.nameZH.isEmpty || place.addressEN.isEmpty)
+                    .disabled(place.nameDE.isEmpty || place.addressEN.isEmpty)
                 }
             }
         }

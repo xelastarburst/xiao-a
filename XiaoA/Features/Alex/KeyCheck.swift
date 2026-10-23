@@ -1,7 +1,7 @@
 import Foundation
 
-/// Alex mode › Test keys: one tiny real request per key (a 5-token Claude reply, a one-word
-/// OpenAI voice clip), so a wrong or unfunded key shows up before Mom needs it.
+/// Settings › Test keys: one tiny real request per key (a 5-token Claude reply, a one-word
+/// OpenAI voice clip), so a wrong or unfunded key shows up before she needs it.
 /// Tests both the key saved on this iPhone and the one built into the app. Costs well under a cent.
 enum KeyCheck {
     struct Result: Identifiable {

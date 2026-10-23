@@ -175,29 +175,54 @@ final class TranscribeSocket {
     }
 }
 
+/// The language a translation is said in, and how the voice should say it.
+enum SpokenLanguage: String, CaseIterable {
+    /// To her: warm, clear, a little slow.
+    case german
+    case english
+    case mandarin
+
+    var instructions: String {
+        let projection = " Speak up and project clearly, as if across a table in a busy café, "
+            + "but stay friendly and relaxed, never shouting."
+        switch self {
+        case .german:
+            return "Speak natural, warm German (standard Hochdeutsch), clearly and a little slowly, for an elderly listener." + projection
+        case .english:
+            return "Speak naturally and warmly, clearly and at a calm pace, like a friendly interpreter." + projection
+        case .mandarin:
+            return "Speak natural, warm Mandarin Chinese (standard Putonghua), clearly and at a calm pace, like a friendly interpreter." + projection
+        }
+    }
+
+    /// The phone's own voice for the same language.
+    var appleVoice: String {
+        switch self {
+        case .german: return "de-DE"
+        case .english: return "en-US"
+        case .mandarin: return "zh-CN"
+        }
+    }
+}
+
 /// OpenAI text-to-speech, streamed: the first words play while the rest is still arriving.
 enum OpenAISpeech {
     static let model = "gpt-4o-mini-tts"
     /// Audio is handed on in chunks of this many bytes (100 ms of 24 kHz PCM16).
     static let chunkBytes = 4800
 
-    /// The speech request: model, voice, raw PCM, and how to speak for each side.
-    static func request(_ text: String, apiKey: String, voice: String, chinese: Bool) throws -> URLRequest {
+    /// The speech request: model, voice, raw PCM, and how to speak this language.
+    static func request(_ text: String, apiKey: String, voice: String, language: SpokenLanguage) throws -> URLRequest {
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/speech")!)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let projection = " Speak up and project clearly, as if across a table in a busy café, "
-            + "but stay friendly and relaxed, never shouting."
-        let instructions = chinese
-            ? "Speak natural, warm Mandarin Chinese (standard Putonghua), clearly and a little slowly, for an elderly listener." + projection
-            : "Speak naturally and warmly, clearly and at a calm pace, like a friendly interpreter." + projection
         let body: [String: Any] = [
             "model": model,
             "voice": voice,
             "input": text,
-            "instructions": instructions,
+            "instructions": language.instructions,
             "response_format": "pcm"
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -205,9 +230,9 @@ enum OpenAISpeech {
     }
 
     /// Calls `onAudio` with 24 kHz mono PCM16 chunks (~100 ms each) as they arrive.
-    static func speak(_ text: String, apiKey: String, voice: String, chinese: Bool,
+    static func speak(_ text: String, apiKey: String, voice: String, language: SpokenLanguage,
                       onAudio: @escaping (Data) async -> Void) async throws {
-        let request = try request(text, apiKey: apiKey, voice: voice, chinese: chinese)
+        let request = try request(text, apiKey: apiKey, voice: voice, language: language)
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else {

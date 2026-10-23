@@ -14,8 +14,8 @@ struct ClaudeClient {
         case noKey, http(Int, String), api(String)
         var errorDescription: String? {
             switch self {
-            case .noKey: return "还没有设置 Claude 密钥。请让 Alex 在设置里填写。"
-            case .http(let code, _): return code == 401 ? "Claude 密钥不对，请让 Alex 检查。" : "网络出了点问题（\(code)），请再试一次。"
+            case .noKey: return "Der Claude-Schlüssel fehlt noch. Bitte lassen Sie Ihre Familie ihn in den Einstellungen eintragen."
+            case .http(let code, _): return code == 401 ? "Der Claude-Schlüssel stimmt nicht. Bitte lassen Sie Ihre Familie ihn prüfen." : "Es gab ein Problem mit dem Internet (\(code)). Bitte versuchen Sie es noch einmal."
             case .api(let message): return message
             }
         }
@@ -67,7 +67,7 @@ struct ClaudeClient {
                            let text = delta["text"] as? String {
                             continuation.yield(text)
                         } else if type == "error" {
-                            let message = (obj["error"] as? [String: Any])?["message"] as? String ?? "出错了"
+                            let message = (obj["error"] as? [String: Any])?["message"] as? String ?? "Ein Fehler ist aufgetreten"
                             throw ClaudeError.api(message)
                         } else if type == "message_stop" {
                             break

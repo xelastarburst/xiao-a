@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import XiaoA
 
-@Suite("小A's voice · Speaker", .serialized)
+@Suite("Helferlein's voice · Speaker", .serialized)
 @MainActor
 struct SpeakerTests {
 
@@ -18,8 +18,8 @@ struct SpeakerTests {
     @Test("Text is trimmed and read at the normal pace; slow English is slower")
     func paces() {
         let voice = FakeVoice(autoFinish: false)
-        voice.speaker.speak("  你好  ", language: "zh-CN")
-        #expect(voice.current.spoken == ["你好"])
+        voice.speaker.speak("  Guten Tag  ", language: "de-DE")
+        #expect(voice.current.spoken == ["Guten Tag"])
         #expect(voice.current.utterances.last?.rate == Speaker.normalRate)
         voice.speaker.speakEnglish("Hello", slow: true)
         #expect(voice.current.utterances.last?.rate == Speaker.slowRate)

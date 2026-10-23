@@ -12,18 +12,18 @@ enum Demo {
     static let isOn = false
     #endif
 
-    /// Simulator sound is off by default (the Mac may be in a sleeping house). Alex mode can turn it on.
+    /// Simulator sound is off by default (the Mac may be in a sleeping house). Settings can turn it on.
     static var soundOn: Bool {
         get { UserDefaults.standard.bool(forKey: "demoSound") }
         set { UserDefaults.standard.set(newValue, forKey: "demoSound") }
     }
 
-    // MARK: 看一看 — a pharmacy sign "seen" by the camera
+    // MARK: Lesen — a pharmacy sign "seen" by the camera
 
     struct SignLine: Identifiable {
         let id: Int
         let en: String
-        let zh: String
+        let de: String
         /// Where the English sits in the photo, as fractions of the photo's width and height.
         let rect: CGRect
     }
@@ -31,15 +31,15 @@ enum Demo {
     static let signImage = UIImage(named: "DemoSign")
 
     static let signLines: [SignLine] = [
-        SignLine(id: 0, en: "PHARMACY", zh: "药房",
+        SignLine(id: 0, en: "PHARMACY", de: "Apotheke",
                  rect: CGRect(x: 0.2496, y: 0.2318, width: 0.6556, height: 0.0462)),
-        SignLine(id: 1, en: "Prescription Pick-Up", zh: "处方药取药处",
+        SignLine(id: 1, en: "Prescription Pick-Up", de: "Rezeptabholung",
                  rect: CGRect(x: 0.1128, y: 0.3325, width: 0.7453, height: 0.0434)),
-        SignLine(id: 2, en: "Please wait here", zh: "请在这里等候",
+        SignLine(id: 2, en: "Please wait here", de: "Bitte hier warten",
                  rect: CGRect(x: 0.1128, y: 0.3914, width: 0.5009, height: 0.0324)),
-        SignLine(id: 3, en: "Open 9 AM – 9 PM", zh: "营业时间：早上9点到晚上9点",
+        SignLine(id: 3, en: "Open 9 AM – 9 PM", de: "Geöffnet 9–21 Uhr",
                  rect: CGRect(x: 0.1128, y: 0.4747, width: 0.5915, height: 0.0395)),
-        SignLine(id: 4, en: "Closed for lunch 1:30 – 2:00 PM", zh: "午休：下午1:30到2:00不开放",
+        SignLine(id: 4, en: "Closed for lunch 1:30 – 2:00 PM", de: "Mittagspause 13:30–14:00 Uhr",
                  rect: CGRect(x: 0.1128, y: 0.5284, width: 0.7829, height: 0.0288))
     ]
 
@@ -53,41 +53,42 @@ enum Demo {
                       width: fraction.width * w, height: fraction.height * h)
     }
 
-    // MARK: 问一问 — answers written the way the real prompt asks Claude to answer
+    // MARK: Fragen — answers written the way the real prompt asks Claude to answer
 
     /// What she "says" when she holds the talk button in the simulator.
-    static let spokenQuestion = "这个牌子上写的是什么？"
+    static let spokenQuestion = "Was steht auf diesem Schild?"
 
-    static func askAnswer(question: String, aboutSign: Bool, hasPhoto: Bool, alexName: String) -> String {
+    static func askAnswer(question: String, aboutSign: Bool, hasPhoto: Bool, contactName: String) -> String {
+        let contact = contactName.isEmpty ? "Ihre Familie" : contactName
         guard aboutSign else {
             return hasPhoto
-                ? "这是模拟器里的示例回答，没有真的看照片。\n在 iPhone 上，小A 会看着你的照片，用中文告诉你上面写了什么，再回答你的问题。"
-                : "这是模拟器里的示例回答。\n在 iPhone 上，小A 会用简单的中文回答你的问题。"
+                ? "Das ist eine Beispiel-Antwort im Simulator, das Foto wurde nicht angesehen.\nAuf dem iPhone schaut Helferlein Ihr Foto an, sagt Ihnen auf Deutsch, was darauf steht, und beantwortet Ihre Frage."
+                : "Das ist eine Beispiel-Antwort im Simulator.\nAuf dem iPhone beantwortet Helferlein Ihre Frage in einfachem Deutsch."
         }
-        if question.contains("怎么用") {
+        if question.contains("benutze") {
             return """
-            这是药房取药的地方，在这里排队取医生给你开的药。
-            · 轮到你时，说出你的名字和生日
-            · 不会说英语，可以打开“翻译官”帮你说
-            · 拿到药，先看药袋上的名字对不对
-            · 药怎么吃，先问\(alexName)或药剂师
+            Hier holen Sie Medikamente ab, die Ihr Arzt verschrieben hat.
+            · Wenn Sie dran sind, nennen Sie Ihren Namen und Ihr Geburtsdatum
+            · Wenn Sie kein Englisch sprechen: öffnen Sie den „Dolmetscher“
+            · Prüfen Sie den Namen auf der Tüte
+            · Wie Sie es einnehmen, fragen Sie zuerst \(contact) oder in der Apotheke
             """
         }
-        if question.contains("注意") {
+        if question.contains("achten") {
             return """
-            · 中午1:30到2:00休息，这个时间不能取药
-            · 晚上9点关门，早点去
-            · 取药时核对药袋上的名字是不是你
-            · 吃药前先问\(alexName)或药剂师，不要自己猜
+            · Mittagspause 13:30 bis 14:00 Uhr: dann keine Abholung
+            · Um 21 Uhr wird geschlossen, gehen Sie lieber früher
+            · Prüfen Sie bei der Abholung, ob Ihr Name auf der Tüte steht
+            · Vor der Einnahme zuerst \(contact) oder die Apotheke fragen, nicht raten
             """
         }
         return """
-        这是药房的牌子。
-        · PHARMACY：药房
-        · Prescription Pick-Up：取处方药的地方
-        · Please wait here：请在这里排队等
-        · 营业时间：早上9点到晚上9点
-        · 中午1:30到2:00休息，不能取药
+        Das ist ein Schild in einer Apotheke.
+        · PHARMACY: Apotheke
+        · Prescription Pick-Up: hier holt man Rezept-Medikamente ab
+        · Please wait here: bitte hier anstellen und warten
+        · Geöffnet von 9 bis 21 Uhr
+        · Mittagspause 13:30 bis 14:00 Uhr, dann keine Abholung
         """
     }
 
@@ -97,7 +98,7 @@ enum Demo {
         var piece = ""
         for ch in text {
             piece.append(ch)
-            if piece.count >= 2 || ch == "\n" {
+            if piece.count >= 4 || ch == "\n" {
                 out.append(piece)
                 piece = ""
             }
@@ -106,61 +107,48 @@ enum Demo {
         return out
     }
 
-    // MARK: 翻译官 — a short conversation at the grocery store
+    // MARK: Dolmetscher — short scripted conversations
 
     struct Exchange {
-        let fromMom: Bool
+        let fromHer: Bool
         let original: String
         let translated: String
         let pause: Double
     }
 
+    /// With an English speaker, at the bus stop.
     static let conversation: [Exchange] = [
-        Exchange(fromMom: false, original: "Hi! Can I help you find something?",
-                 translated: "你好！需要我帮你找什么吗？", pause: 1.2),
-        Exchange(fromMom: true, original: "我想买牛奶，在哪里？",
-                 translated: "I'd like to buy some milk. Where is it?", pause: 2.0),
-        Exchange(fromMom: false, original: "It's in aisle five, at the back of the store.",
-                 translated: "在5号通道，商店的最里面。", pause: 2.0),
-        Exchange(fromMom: true, original: "谢谢你！",
-                 translated: "Thank you!", pause: 2.0),
-        Exchange(fromMom: false, original: "You're welcome. Have a nice day!",
-                 translated: "不客气，祝你今天愉快！", pause: 1.6)
+        Exchange(fromHer: true, original: "Entschuldigung, wo ist die nächste Bushaltestelle?",
+                 translated: "Excuse me, where is the nearest bus stop?", pause: 1.2),
+        Exchange(fromHer: false, original: "It's just around the corner, on the left side.",
+                 translated: "Die Haltestelle ist gleich um die Ecke, auf der linken Seite.", pause: 2.0),
+        Exchange(fromHer: true, original: "Fährt der Bus zum Supermarkt?",
+                 translated: "Does the bus go to the supermarket?", pause: 2.0),
+        Exchange(fromHer: false, original: "Yes, the number 22. It comes every fifteen minutes.",
+                 translated: "Ja, die Nummer 22. Sie kommt alle fünfzehn Minuten.", pause: 2.0),
+        Exchange(fromHer: true, original: "Vielen Dank!",
+                 translated: "Thank you so much!", pause: 1.6)
     ]
 
-    /// 翻译官 in German — meeting a German-speaking neighbor.
-    static let germanConversation: [Exchange] = [
-        Exchange(fromMom: false, original: "Hallo! Schön, Sie wiederzusehen. Wie geht es Ihnen?",
-                 translated: "你好！很高兴又见到你。你好吗？", pause: 1.2),
-        Exchange(fromMom: true, original: "我很好，谢谢！你呢？",
-                 translated: "Mir geht es gut, danke! Und Ihnen?", pause: 2.0),
-        Exchange(fromMom: false, original: "Auch gut. Möchten Sie morgen mit uns spazieren gehen?",
-                 translated: "我也很好。你明天想和我们一起去散步吗？", pause: 2.0),
-        Exchange(fromMom: true, original: "好啊！几点？",
+    /// With a Mandarin speaker: meeting a Chinese grandmother in the park.
+    static let chineseConversation: [Exchange] = [
+        Exchange(fromHer: true, original: "Schön, Sie kennenzulernen! Wie lange sind Sie schon in Amerika?",
+                 translated: "很高兴认识您！您来美国多久了？", pause: 1.2),
+        Exchange(fromHer: false, original: "两个月了。我来看我儿子。",
+                 translated: "Seit zwei Monaten. Ich besuche meinen Sohn.", pause: 2.0),
+        Exchange(fromHer: true, original: "Wie schön! Möchten Sie morgen mit mir spazieren gehen?",
+                 translated: "太好了！您明天想和我一起去散步吗？", pause: 2.0),
+        Exchange(fromHer: false, original: "好啊！几点？",
                  translated: "Gern! Um wie viel Uhr?", pause: 2.0),
-        Exchange(fromMom: false, original: "Um zehn Uhr, im Park. Bis morgen!",
-                 translated: "十点，在公园。明天见！", pause: 1.6)
+        Exchange(fromHer: true, original: "Um zehn Uhr, hier im Park. Bis morgen!",
+                 translated: "十点，就在这个公园。明天见！", pause: 1.6)
     ]
 
     static func conversation(with partner: PartnerLanguage) -> [Exchange] {
-        partner == .german ? germanConversation : conversation
+        partner == .chinese ? chineseConversation : conversation
     }
 
-    // MARK: 学英语 — what the "microphone" hears
-
-    /// First try misses the hardest words; the second try is right. Shows the whole coaching loop.
-    static func heard(for phrase: String, attempt: Int) -> String {
-        guard attempt == 1 else { return phrase }
-        let words = phrase.split(separator: " ").map(String.init)
-        if words.count <= 1 { return "uh" }
-        let byLength = words.indices.sorted {
-            PronunciationCheck.normalize(words[$0]).joined().count > PronunciationCheck.normalize(words[$1]).joined().count
-        }
-        let drop = Set(byLength.prefix(words.count >= 4 ? 2 : 1))
-        return words.indices.filter { !drop.contains($0) }.map { words[$0] }.joined(separator: " ")
-    }
-
-    // MARK: 医疗卡 — sample insurance card photos
+    // MARK: Notfallausweis — sample insurance card photos
 
     static func cardImage(_ side: CardSide) -> UIImage? {
         UIImage(named: side == .front ? "DemoCardFront" : "DemoCardBack")
@@ -170,7 +158,7 @@ enum Demo {
 /// A small tag on anything the simulator demo made up.
 struct DemoTag: View {
     var body: some View {
-        Text("模拟器示例")
+        Text("Beispiel")
             .font(.xa(14, .heavy))
             .foregroundStyle(Palette.warnInk)
             .padding(.horizontal, 8).frame(height: 24)

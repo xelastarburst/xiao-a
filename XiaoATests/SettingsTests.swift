@@ -58,47 +58,45 @@ struct KeysTests {
     }
 }
 
-@Suite("Alex's setup")
+@Suite("Her setup")
 struct ConfigTests {
 
     @Test("A fresh setup has sensible defaults")
     func defaults() throws {
         let config = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
-        #expect(config.alexName == "Alex")
-        #expect(config.momNameZH == "妈妈")
-        #expect(config.newPhrasesPerDay == 4)
-        #expect(config.remindersOn)
-        #expect(!config.strictPronunciation)
+        #expect(config.contactName == "")
+        #expect(config.contactLabel == "Ihre Familie")
+        #expect(config.herName == "")
         #expect(config.places.isEmpty)
     }
 
-    @Test("An old or damaged field never wipes the rest of Alex's setup")
+    @Test("An old or damaged field never wipes the rest of her setup")
     func tolerantDecoding() throws {
-        let json = #"{"alexName":"Bob","alexPhone":"2065550123","newPhrasesPerDay":"lots","fieldFromTheFuture":true,"medical":{"insurer":"Aetna","memberID":7}}"#
+        let json = #"{"contactName":"Bob","contactPhone":"2065550123","herName":42,"fieldFromTheFuture":true,"medical":{"insurer":"Aetna","memberID":7}}"#
         let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
-        #expect(config.alexName == "Bob")
-        #expect(config.alexPhone == "2065550123")
-        #expect(config.newPhrasesPerDay == 4)
+        #expect(config.contactName == "Bob")
+        #expect(config.contactPhone == "2065550123")
+        #expect(config.herName == "")
+        #expect(config.contactLabel == "Bob")
         #expect(config.medical.insurer == "Aetna")
         #expect(config.medical.memberID == "")
     }
 
-    @Test("Everything Alex sets up is saved and read back unchanged")
+    @Test("Everything the family sets up is saved and read back unchanged")
     func roundTrip() throws {
         var config = AppConfig()
-        config.momNameEN = "Lin"
-        config.alexPhone = "+1 206 555 0123"
+        config.herNameEN = "Lin"
+        config.contactPhone = "+1 206 555 0123"
         config.homeAddressEN = "1 Main St"
-        config.places = [Place(nameZH: "超市", addressEN: "2 Market St", icon: "cart.fill")]
-        config.medical.allergiesZH = "青霉素"
-        config.strictPronunciation = true
-        config.newPhrasesPerDay = 6
+        config.places = [Place(nameDE: "Supermarkt", addressEN: "2 Market St", icon: "cart.fill")]
+        config.medical.allergiesDE = "Penicillin"
+        config.herName = "Oma Inge"
         config.pin = "2580"
         let back = try JSONDecoder().decode(AppConfig.self, from: JSONEncoder().encode(config))
-        #expect(back.momNameEN == "Lin")
-        #expect(back.alexPhone == "+1 206 555 0123")
+        #expect(back.herNameEN == "Lin")
+        #expect(back.contactPhone == "+1 206 555 0123")
         #expect(back.places == config.places)
         #expect(back.medical == config.medical)
-        #expect(back.strictPronunciation && back.newPhrasesPerDay == 6 && back.pin == "2580")
+        #expect(back.herName == "Oma Inge" && back.pin == "2580")
     }
 }

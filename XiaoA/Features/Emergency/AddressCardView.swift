@@ -7,28 +7,28 @@ struct AddressCardView: View {
     @EnvironmentObject private var store: ConfigStore
     @StateObject private var speaker = Speaker.shared
 
-    private var nameZH: String { place?.nameZH ?? "家" }
+    private var nameDE: String { place?.nameDE ?? "Zuhause" }
     private var addressEN: String { place?.addressEN ?? store.config.homeAddressEN }
     private var isHome: Bool { place == nil || place?.icon == "house.fill" }
 
     var body: some View {
         VStack(spacing: 14) {
-            Text(isHome ? "请带我回家" : "请带我去：\(nameZH)")
+            Text(isHome ? "Bitte bringen Sie mich nach Hause" : "Bitte bringen Sie mich zu: \(nameDE)")
                 .font(.xa(24, .heavy)).foregroundStyle(Palette.ink2)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 14) {
                 Text("Please take me to this address:")
                     .font(.system(size: 24, weight: .bold, design: .rounded))
-                Text(addressEN.isEmpty ? "(No address yet — ask Alex)" : addressEN)
+                Text(addressEN.isEmpty ? "(No address yet — please ask my family)" : addressEN)
                     .font(.system(size: 40, weight: .heavy, design: .rounded))
                     .minimumScaleFactor(0.5)
                     .textSelection(.enabled)
-                if isHome && !store.config.homeAddressZH.isEmpty {
-                    Text(store.config.homeAddressZH).font(.xa(20, .semibold)).foregroundStyle(Palette.ink2)
+                if isHome && !store.config.homeAddressDE.isEmpty {
+                    Text(store.config.homeAddressDE).font(.xa(20, .semibold)).foregroundStyle(Palette.ink2)
                 }
                 Divider()
-                Text("I don't speak English. If you need help, please call my son \(store.config.alexName): \(store.config.alexPhone)")
+                Text("I don't speak English, I speak German. If you need help, please call my family\(store.config.contactName.isEmpty ? "" : " (\(store.config.contactName))"): \(store.config.contactPhone)")
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
             }
             .foregroundStyle(Palette.ink)
@@ -39,20 +39,20 @@ struct AddressCardView: View {
 
             Spacer(minLength: 0)
 
-            BigButton(title: "读给对方听", systemImage: "speaker.wave.2.fill",
+            BigButton(title: "Auf Englisch vorlesen", systemImage: "speaker.wave.2.fill",
                       fill: Palette.teal, depth: Palette.tealDeep) {
                 speaker.speakEnglish("Hello. Please take me to this address: \(addressEN). Thank you!")
             }
-            if !store.config.alexPhone.isEmpty {
-                SoftButton(title: "打给 \(store.config.alexName)", systemImage: "phone.fill", height: 64, fontSize: 22) {
-                    Phone.call(store.config.alexPhone)
+            if !store.config.contactPhone.isEmpty {
+                SoftButton(title: "\(store.config.contactLabel) anrufen", systemImage: "phone.fill", height: 64, fontSize: 22) {
+                    Phone.call(store.config.contactPhone)
                 }
             }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
         .safeAreaInset(edge: .top) {
-            TopBar(title: "给别人看").padding(.bottom, 8).background(Palette.cream)
+            TopBar(title: "Adresse zeigen").padding(.bottom, 8).background(Palette.cream)
         }
         .background(ScreenBackground())
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }

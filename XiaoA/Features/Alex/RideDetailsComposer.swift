@@ -4,21 +4,21 @@ enum CarColor: String, CaseIterable, Identifiable {
     case white, black, silver, gray, blue, red, green, other
     var id: String { rawValue }
     var en: String { rawValue.capitalized }
-    var zh: String {
+    var de: String {
         switch self {
-        case .white: return "白色"
-        case .black: return "黑色"
-        case .silver: return "银色"
-        case .gray: return "灰色"
-        case .blue: return "蓝色"
-        case .red: return "红色"
-        case .green: return "绿色"
+        case .white: return "Weiß"
+        case .black: return "Schwarz"
+        case .silver: return "Silber"
+        case .gray: return "Grau"
+        case .blue: return "Blau"
+        case .red: return "Rot"
+        case .green: return "Grün"
         case .other: return ""
         }
     }
 }
 
-/// After booking Uber for Mom, Alex fills this in and it becomes a Chinese text to her.
+/// After booking an Uber for her, her family fills this in and it becomes a German text to her.
 struct RideDetailsComposer: View {
     @EnvironmentObject private var store: ConfigStore
     @EnvironmentObject private var app: AppState
@@ -33,15 +33,15 @@ struct RideDetailsComposer: View {
         Self.message(color: color, model: model, plate: plate, driver: driver, minutes: minutes)
     }
 
-    /// The Chinese text Mom gets: car, plate, driver, minutes, and the plate check. Empty fields are left out.
+    /// The German text she gets: car, plate, driver, minutes, and the plate check. Empty fields are left out.
     static func message(color: CarColor, model: String, plate: String, driver: String, minutes: Int) -> String {
-        var lines = ["【小A 叫车】车叫好啦！"]
-        let car = [color.zh, model].filter { !$0.isEmpty }.joined(separator: " ")
-        if !car.isEmpty { lines.append("车：\(car)") }
-        lines.append("车牌：\(plate.uppercased())")
-        if !driver.isEmpty { lines.append("司机：\(driver)") }
-        lines.append("大约 \(minutes) 分钟到")
-        lines.append("上车前，一定先对车牌！对上了再上车。")
+        var lines = ["[Helferlein] Ihr Auto ist bestellt!"]
+        if !color.de.isEmpty { lines.append("Farbe: \(color.de)") }
+        if !model.isEmpty { lines.append("Auto: \(model)") }
+        lines.append("Kennzeichen: \(plate.uppercased())")
+        if !driver.isEmpty { lines.append("Fahrer: \(driver)") }
+        lines.append("Ankunft in etwa \(minutes) Minuten")
+        lines.append("Vor dem Einsteigen unbedingt das Kennzeichen prüfen! Nur einsteigen, wenn es stimmt.")
         return lines.joined(separator: "\n")
     }
 
@@ -60,22 +60,22 @@ struct RideDetailsComposer: View {
                 TextField("Driver's first name", text: $driver)
                 Stepper("Arrives in \(minutes) min", value: $minutes, in: 1...30)
             }
-            Section("Mom will get") {
+            Section("She will get") {
                 Text(message).font(.body)
             }
             Section {
-                Button("Text Mom") {
-                    app.text(store.config.momPhone, body: message)
+                Button("Text her") {
+                    app.text(store.config.herPhone, body: message)
                 }
-                .disabled(plate.isEmpty || store.config.momPhone.isEmpty)
+                .disabled(plate.isEmpty || store.config.herPhone.isEmpty)
             } footer: {
-                if store.config.momPhone.isEmpty {
-                    Text("Add Mom's phone number at the top of Alex mode first.")
+                if store.config.herPhone.isEmpty {
+                    Text("Add her phone number at the top of Settings first.")
                 } else {
-                    Text("Tip: in Uber, choose “Ride for someone else” and pick Mom so the driver can call her too.")
+                    Text("Tip: in Uber, choose “Ride for someone else” and pick her so the driver can call her too.")
                 }
             }
         }
-        .navigationTitle("Tell Mom her car")
+        .navigationTitle("Tell her about her car")
     }
 }

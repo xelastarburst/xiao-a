@@ -1,11 +1,12 @@
 import SwiftUI
 import AVFoundation
+import NaturalLanguage
 
 /// Hands-free, turn-by-turn interpreter — the way a human interpreter works:
 /// 1. One OpenAI transcription stream hears everyone and notices when each person finishes a
 ///    sentence. It writes down exactly what was said, in the language it was said in.
-/// 2. The language says who spoke: Chinese is Mom; anything else is the other person (any number
-///    of other people, English or German).
+/// 2. The language says who spoke: German is her; English (or Chinese) is the other person (any
+///    number of other people).
 /// 3. Claude translates the whole sentence, with the recent conversation as context.
 /// 4. A natural OpenAI voice says it, one turn at a time. While the phone talks, the mic is muted
 ///    so it never translates itself.
@@ -18,7 +19,7 @@ final class InterpreterEngine: ObservableObject {
 
     struct Line: Identifiable, Equatable {
         let id = UUID()
-        let fromMom: Bool
+        let fromHer: Bool
         var original = ""
         var translated = ""
         var started = Date()
@@ -29,16 +30,16 @@ final class InterpreterEngine: ObservableObject {
     @Published private(set) var status: Status = .idle
     @Published private(set) var lines: [Line] = []
     @Published var askKeepListening = false
-    /// The language of the person Mom is talking to.
+    /// The language of the person she is talking to.
     @Published private(set) var partner: PartnerLanguage = .english
-    /// What went wrong, in English, shown small on screen so Alex can see it.
+    /// What went wrong, in English, shown small on screen for her family.
     @Published private(set) var problem: String?
     /// Someone is talking right now (drives the moving waveform).
     @Published private(set) var hearing = false
 
     var visibleLines: [Line] { lines.filter { !($0.original.isEmpty && $0.translated.isEmpty) } }
-    var latestFromMom: Line? { visibleLines.last(where: { $0.fromMom }) }
-    var latestFromOther: Line? { visibleLines.last(where: { !$0.fromMom }) }
+    var latestFromHer: Line? { visibleLines.last(where: { $0.fromHer }) }
+    var latestFromOther: Line? { visibleLines.last(where: { !$0.fromHer }) }
     var isRunning: Bool { status == .listening || status == .speaking || status == .connecting }
     /// Changes when the conversation on screen grows; the view scrolls to the bottom on it.
     var scrollKey: String {
@@ -92,11 +93,11 @@ final class InterpreterEngine: ObservableObject {
             return
         }
         guard let key = APIKeys.get(.openAI) else {
-            status = .failed("还没有设置 OpenAI 密钥。请让 Alex 在设置里填写。")
+            status = .failed("Der OpenAI-Schlüssel fehlt noch. Bitte lassen Sie Ihre Familie ihn in den Einstellungen eintragen.")
             return
         }
         guard APIKeys.get(.anthropic) != nil else {
-            status = .failed("还没有设置 Claude 密钥。请让 Alex 在设置里填写。")
+            status = .failed("Der Claude-Schlüssel fehlt noch. Bitte lassen Sie Ihre Familie ihn in den Einstellungen eintragen.")
             return
         }
         openAIKey = key
@@ -111,11 +112,11 @@ final class InterpreterEngine: ObservableObject {
         timing.removeAll()
         startedAt = Date()
         lastLevelLog = Date()
-        print("[XA] ===== conversation started (turn by turn): Chinese <-> \(partner.rawValue), "
-              + "voices: Mom \(InterpreterVoice.forMom), others \(InterpreterVoice.forOthers) =====")
+        print("[XA] ===== conversation started (turn by turn): German <-> \(partner.rawValue), "
+              + "voices: her \(InterpreterVoice.forHer), others \(InterpreterVoice.forOthers) =====")
         Task {
             guard await AVAudioApplication.requestRecordPermission() else {
-                status = .failed("需要打开麦克风权限。请让 Alex 在 iPhone 设置 › 小A 里打开。")
+                status = .failed("Das Mikrofon ist nicht erlaubt. Bitte lassen Sie Ihre Familie es in den iPhone-Einstellungen › Helferlein einschalten.")
                 return
             }
             guard status == .connecting else { return }
@@ -130,7 +131,7 @@ final class InterpreterEngine: ObservableObject {
             } catch {
                 AudioCoordinator.interpreterActive = false
                 stop()
-                status = .failed("麦克风打不开，请再试一次。")
+                status = .failed("Das Mikrofon geht gerade nicht. Bitte versuchen Sie es noch einmal.")
                 return
             }
             self.audio = audio
@@ -156,12 +157,12 @@ final class InterpreterEngine: ObservableObject {
     }
 
     private var transcriptionPrompt: String {
-        "A face-to-face conversation between an elderly woman who speaks Mandarin Chinese and people "
-            + "who speak \(partnerName). Transcribe exactly what is said, in the language it is spoken. "
-            + "Write Chinese in simplified characters."
+        "A face-to-face conversation between an elderly woman who speaks German and people "
+            + "who speak \(partner.promptName). Transcribe exactly what is said, in the language it is spoken."
+            + (partner == .chinese ? " Write Chinese in simplified characters." : "")
     }
 
-    private var partnerName: String { partner == .german ? "German" : "English" }
+    private var partnerName: String { partner.promptName }
 
     func stop() {
         if audio != nil { print("[XA] ===== conversation ended at \(stamp(Date())) =====") }
@@ -198,16 +199,16 @@ final class InterpreterEngine: ObservableObject {
         if let chunks = spokenAudio[line.id], !chunks.isEmpty, let audio {
             chunks.forEach { audio.play(pcm16: $0) }
         } else {
-            Speaker.shared.speak(line.translated, language: line.fromMom ? partner.voice : "zh-CN")
+            Speaker.shared.speak(line.translated, language: line.fromHer ? partner.voice : SpokenLanguage.german.appleVoice)
         }
         lastActivity = Date()
     }
 
-    /// Plays a ready-made phrase in the other person's language, and logs it as Mom's line.
-    func say(_ phrase: String, chinese: String) {
+    /// Plays a ready-made phrase in the other person's language, and logs it as her line.
+    func say(_ phrase: String, german: String) {
         print("[XA] \(stamp(Date())) phrase button: \(phrase)")
         Speaker.shared.speak(phrase, language: partner.voice)
-        lines.append(Line(fromMom: true, original: chinese, translated: phrase))
+        lines.append(Line(fromHer: true, original: german, translated: phrase))
         lastActivity = Date()
     }
 
@@ -236,7 +237,7 @@ final class InterpreterEngine: ObservableObject {
             print("[XA] \(stamp(Date())) transcription closed")
         case .failed(let message):
             stop()
-            status = .failed("网络不好，翻译官停下来了。请再试一次。\n(\(message))")
+            status = .failed("Die Internetverbindung ist schlecht, der Dolmetscher hat angehalten. Bitte versuchen Sie es noch einmal.\n(\(message))")
         case .serverError(let message):
             print("[XA] \(stamp(Date())) SERVER ERROR (transcription): \(message)")
             problem = message
@@ -244,7 +245,7 @@ final class InterpreterEngine: ObservableObject {
                                  modelIndex: modelIndex, modelCount: transcriptionModels.count) {
             case .stopBadKey:
                 stop()
-                status = .failed("OpenAI 密钥不对。请让 Alex 在设置里检查。")
+                status = .failed("Der OpenAI-Schlüssel stimmt nicht. Bitte lassen Sie Ihre Familie ihn in den Einstellungen prüfen.")
             case .switchModel:
                 modelIndex += 1
                 connectTranscriber()
@@ -262,7 +263,7 @@ final class InterpreterEngine: ObservableObject {
             if !text.isEmpty { print("[XA] \(stamp(Date())) ignored (noise): \"\(text)\" \(ms)ms") }
             return
         }
-        let line = Line(fromMom: Self.hasChinese(text), original: text)
+        let line = Line(fromHer: Self.isHers(text, partner: partner), original: text)
         lines.append(line)
         if lines.count > 80 { lines.removeFirst(lines.count - 80) }
         timing[line.id] = Timing(speechEnded: speechEndedAt[item])
@@ -282,6 +283,23 @@ final class InterpreterEngine: ObservableObject {
         return .carryOn
     }
 
+    /// Who said it, from the language: German is her. With a Chinese-speaking partner, Chinese
+    /// characters mean the partner; with an English-speaking one, German letters (ä ö ü ß) or the
+    /// phone's own language recognizer decide.
+    static func isHers(_ text: String, partner: PartnerLanguage) -> Bool {
+        switch partner {
+        case .chinese:
+            return !hasChinese(text)
+        case .english:
+            if text.contains(where: { "äöüßÄÖÜ".contains($0) }) { return true }
+            let recognizer = NLLanguageRecognizer()
+            recognizer.languageConstraints = [.german, .english]
+            recognizer.processString(text)
+            let guesses = recognizer.languageHypotheses(withMaximum: 2)
+            return (guesses[.german] ?? 0) > (guesses[.english] ?? 0)
+        }
+    }
+
     static func hasChinese(_ text: String) -> Bool {
         text.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) || (0x3400...0x4DBF).contains($0.value) }
     }
@@ -292,7 +310,8 @@ final class InterpreterEngine: ObservableObject {
         guard text.contains(where: { $0.isLetter }) else { return false }
         if milliseconds > 0 && milliseconds < 300 { return false }
         let junk = ["thanks for watching", "thank you for watching", "字幕", "订阅", "点赞", "amara.org",
-                    "请不吝", "谢谢观看", "明镜"]
+                    "请不吝", "谢谢观看", "明镜", "untertitel", "fürs zuschauen", "für's zuschauen",
+                    "im auftrag des zdf", "copyright wdr"]
         let lower = text.lowercased()
         return !junk.contains(where: { lower.contains($0) })
     }
@@ -319,19 +338,19 @@ final class InterpreterEngine: ObservableObject {
     }
 
     /// What Claude is asked: the last 8 translated lines as context, then the new line and which
-    /// way to translate it. Mom's lines go into the other person's language, never back into hers.
+    /// way to translate it. Her lines go into the other person's language, never back into German.
     static func translationMessage(for line: Line, earlier: [Line], partnerName: String) -> String {
         let history = earlier.filter { !$0.translated.isEmpty }.suffix(8)
-            .map { "\($0.fromMom ? "Mom" : "Other") said: \($0.original) → \($0.translated)" }
+            .map { "\($0.fromHer ? "She" : "Other") said: \($0.original) → \($0.translated)" }
             .joined(separator: "\n")
-        let target = targetLanguage(fromMom: line.fromMom, partnerName: partnerName)
-        let who = line.fromMom ? "Mom (in Chinese)" : "the other person"
+        let target = targetLanguage(fromHer: line.fromHer, partnerName: partnerName)
+        let who = line.fromHer ? "her (in German)" : "the other person"
         return (history.isEmpty ? "" : "Conversation so far:\n\(history)\n\n")
             + "New line from \(who):\n\(line.original)\n\nTranslate the new line into \(target)."
     }
 
-    static func targetLanguage(fromMom: Bool, partnerName: String) -> String {
-        fromMom ? partnerName : "Simplified Chinese (as used in mainland China)"
+    static func targetLanguage(fromHer: Bool, partnerName: String) -> String {
+        fromHer ? partnerName : "German"
     }
 
     /// Claude's reply without surrounding spaces or quotes.
@@ -342,15 +361,16 @@ final class InterpreterEngine: ObservableObject {
 
     private var translatorPrompt: String {
         """
-        You are a professional live interpreter. You help an elderly woman from mainland China \
-        ("Mom", she speaks Mandarin) talk with people who speak \(partnerName). Each message gives \
-        the recent conversation and one new line, written down by speech recognition.
+        You are a professional live interpreter. You help an elderly German woman ("she", she speaks \
+        German) talk with people who speak \(partnerName). Each message gives the recent conversation \
+        and one new line, written down by speech recognition.
 
         Translate the new line faithfully and completely, as natural spoken language in the same \
         person and tone: what an excellent human interpreter would say out loud. Use the conversation \
         to get names, references and ambiguous words right. If speech recognition clearly misheard a \
         word, translate the most likely intended meaning. Keep names, numbers, prices, times and \
-        addresses exactly. Output only the translation: no quotes, notes or explanations.
+        addresses exactly. Into German, "you" is the polite "Sie" unless they clearly know each other \
+        well. Output only the translation: no quotes, notes or explanations.
         """
     }
 
@@ -374,17 +394,17 @@ final class InterpreterEngine: ObservableObject {
     }
 
     private func speakAloud(_ line: Line) async {
-        // Mom's words are said in the other person's language; theirs in Chinese.
-        let chinese = !line.fromMom
-        let voice = line.fromMom ? InterpreterVoice.forMom : InterpreterVoice.forOthers
+        // Her words are said in the other person's language; theirs in German.
+        let language: SpokenLanguage = line.fromHer ? partner.spoken : .german
+        let voice = line.fromHer ? InterpreterVoice.forHer : InterpreterVoice.forOthers
         do {
-            try await OpenAISpeech.speak(line.translated, apiKey: openAIKey, voice: voice, chinese: chinese) { [weak self] chunk in
+            try await OpenAISpeech.speak(line.translated, apiKey: openAIKey, voice: voice, language: language) { [weak self] chunk in
                 await self?.play(chunk, for: line.id)
             }
         } catch {
             print("[XA] \(stamp(Date())) voice failed, using the phone's own: \(error.localizedDescription)")
             guard isRunning else { return }
-            Speaker.shared.speak(line.translated, language: chinese ? "zh-CN" : partner.voice)
+            Speaker.shared.speak(line.translated, language: language.appleVoice)
             timing[line.id]?.firstSound = Date()
             // Let the phone's voice finish before the next turn, so two voices never overlap.
             try? await Task.sleep(nanoseconds: 300_000_000)
@@ -420,7 +440,7 @@ final class InterpreterEngine: ObservableObject {
             guard let a, let b else { return "?" }
             return String(format: "%.1fs", b.timeIntervalSince(a))
         }
-        print("[XA] \(stamp(line.started)) \(line.fromMom ? "Mom" : "Other"): \"\(line.original.prefix(80))\"")
+        print("[XA] \(stamp(line.started)) \(line.fromHer ? "Her" : "Other"): \"\(line.original.prefix(80))\"")
         print("[XA]          -> \"\(line.translated.prefix(80))\"  [pause->text \(gap(t.speechEnded, t.transcribed)), "
               + "text->translation \(gap(t.transcribed, t.translated)), translation->voice \(gap(t.translated, t.firstSound))]")
     }
@@ -458,7 +478,7 @@ final class InterpreterEngine: ObservableObject {
             for exchange in Demo.conversation(with: self.partner) {
                 try? await Task.sleep(nanoseconds: UInt64(exchange.pause * 1_000_000_000))
                 if Task.isCancelled { return }
-                let line = Line(fromMom: exchange.fromMom)
+                let line = Line(fromHer: exchange.fromHer)
                 self.lines.append(line)
                 let id = line.id
                 for word in exchange.original.split(separator: " ", omittingEmptySubsequences: false) {
@@ -473,7 +493,7 @@ final class InterpreterEngine: ObservableObject {
                 if let i = self.lines.firstIndex(where: { $0.id == id }) {
                     self.lines[i].translated = exchange.translated
                 }
-                Speaker.shared.speak(exchange.translated, language: exchange.fromMom ? self.partner.voice : "zh-CN")
+                Speaker.shared.speak(exchange.translated, language: exchange.fromHer ? self.partner.voice : SpokenLanguage.german.appleVoice)
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 var waited = 0
                 while Speaker.shared.isSpeaking && waited < 40 && !Task.isCancelled {

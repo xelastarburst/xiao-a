@@ -4,7 +4,7 @@ import SwiftUI
 final class AskModel: ObservableObject {
     struct Turn: Identifiable, Equatable {
         let id = UUID()
-        var fromMom: Bool
+        var fromHer: Bool
         var text: String
         /// Written by the simulator demo, not by Claude.
         var demo = false
@@ -21,11 +21,11 @@ final class AskModel: ObservableObject {
     private var task: Task<Void, Never>?
     private(set) var lastFailedQuestion: String?
 
-    var latestAnswer: Turn? { turns.last(where: { !$0.fromMom && !$0.text.isEmpty }) }
+    var latestAnswer: Turn? { turns.last(where: { !$0.fromHer && !$0.text.isEmpty }) }
 
     func question(before answer: Turn) -> String? {
         guard let i = turns.firstIndex(of: answer) else { return nil }
-        return turns[..<i].last(where: { $0.fromMom })?.text
+        return turns[..<i].last(where: { $0.fromHer })?.text
     }
 
     func startOver(with newImage: UIImage?) {
@@ -41,9 +41,9 @@ final class AskModel: ObservableObject {
         guard !q.isEmpty, !streaming else { return }
         error = nil
         lastFailedQuestion = nil
-        turns.append(Turn(fromMom: true, text: q))
+        turns.append(Turn(fromHer: true, text: q))
         let messages = buildMessages()
-        turns.append(Turn(fromMom: false, text: ""))
+        turns.append(Turn(fromHer: false, text: ""))
         let answerID = turns[turns.count - 1].id
         streaming = true
         let system = Self.systemPrompt(config)
@@ -67,7 +67,7 @@ final class AskModel: ObservableObject {
                 // Drop the unanswered pair so the conversation stays valid for the next try.
                 if let i = turns.firstIndex(where: { $0.id == answerID }), turns[i].text.isEmpty {
                     turns.remove(at: i)
-                    if i > 0, turns[i - 1].fromMom { turns.remove(at: i - 1) }
+                    if i > 0, turns[i - 1].fromHer { turns.remove(at: i - 1) }
                 }
             }
             streaming = false
@@ -79,7 +79,7 @@ final class AskModel: ObservableObject {
         let answer = Demo.askAnswer(question: question,
                                     aboutSign: image != nil && image === Demo.signImage,
                                     hasPhoto: image != nil,
-                                    alexName: config.alexName)
+                                    contactName: config.contactName)
         if let i = turns.firstIndex(where: { $0.id == answerID }) { turns[i].demo = true }
         task = Task {
             try? await Task.sleep(nanoseconds: 700_000_000)
@@ -101,7 +101,7 @@ final class AskModel: ObservableObject {
         var messages: [[String: Any]] = []
         var attachedImage = false
         for turn in turns where !turn.text.isEmpty {
-            if turn.fromMom {
+            if turn.fromHer {
                 var content: [[String: Any]] = []
                 if !attachedImage, let imageBlock {
                     content.append(imageBlock)
@@ -117,24 +117,29 @@ final class AskModel: ObservableObject {
     }
 
     static func systemPrompt(_ config: AppConfig) -> String {
-        let alex = config.alexName
+        let contact = config.contactLabel
+        let name = config.herName.trimmingCharacters(in: .whitespaces)
+        let who = name.isEmpty ? "" : " (\(name))"
+        let family = config.contactName.isEmpty ? "" : " Ihre Ansprechperson in der Familie ist \(config.contactName)."
         var prompt = """
-        你是“小A”，是\(alex)做的小助手，正在帮他的妈妈。她只会说普通话、只读简体中文，不懂英语，正在美国探亲。
+        Du bist „Helferlein“, ein kleiner Helfer auf dem iPhone einer älteren deutschen Dame\(who), \
+        die in den USA lebt. Sie spricht Deutsch und kaum Englisch.\(family)
 
-        回答规则：
-        - 永远用简体中文回答。口语、亲切、简短：一般不超过5行，用短句，每个要点一行，行首用“·”。
-        - 不要用 Markdown 格式（不要用 **、#、表格）。
-        - 有照片时，先用一句话说清楚照片上的英文是什么意思，再回答她的问题。
-        - 药品和看病：只说标签或纸上写了什么。绝对不要编造剂量、次数或用法；标签上没写的就说“标签上没写”。最后提醒她：吃药前先问\(alex)或药剂师、医生。
-        - 钱、账单、银行、合同、政府或官方信件：解释意思，但提醒她先别付钱、别签字、别回电话、别给别人个人信息，先问\(alex)。注意可能是诈骗。
-        - 不确定就直说不确定，不要猜。
-        - 如果她受伤、迷路、身体不舒服或有危险：告诉她马上按屏幕上红色的“紧急”按钮。
+        Regeln für deine Antworten:
+        - Antworte immer auf Deutsch und sprich sie mit „Sie“ an. Freundlich, einfach und kurz: meist höchstens 5 Zeilen, kurze Sätze, ein Punkt pro Zeile, jede Zeile beginnt mit „·“.
+        - Kein Markdown (kein **, kein #, keine Tabellen).
+        - Bei einem Foto: sag zuerst in einem Satz, was der englische Text bedeutet, dann beantworte ihre Frage.
+        - Amerikanische Maßeinheiten (°F, oz, lb, Meilen, Zoll) zusätzlich in metrische umrechnen.
+        - Medikamente und Arztsachen: sag nur, was auf dem Etikett oder Papier steht. Erfinde niemals Dosierung, Häufigkeit oder Anwendung; was nicht draufsteht: „Das steht nicht auf dem Etikett.“ Erinnere sie am Ende: vor der Einnahme zuerst \(contact), die Apotheke oder den Arzt fragen.
+        - Geld, Rechnungen, Bank, Verträge, Briefe von Behörden: erkläre die Bedeutung, aber erinnere sie: noch nichts bezahlen, nichts unterschreiben, nicht zurückrufen, keine persönlichen Daten weitergeben, zuerst \(contact) fragen. Es könnte Betrug sein.
+        - Wenn du unsicher bist, sag das ehrlich. Nicht raten.
+        - Wenn sie verletzt ist, sich verlaufen hat, sich nicht wohlfühlt oder in Gefahr ist: sag ihr, sie soll sofort den roten „Notfall“-Knopf auf dem Bildschirm drücken.
         """
         if !config.askContext.isEmpty {
-            prompt += "\n\n\(alex)告诉你的背景：\(config.askContext)"
+            prompt += "\n\nHintergrund von \(contact): \(config.askContext)"
         }
         if !config.homeAddressEN.isEmpty {
-            prompt += "\n家的地址：\(config.homeAddressEN)"
+            prompt += "\nAdresse zu Hause: \(config.homeAddressEN)"
         }
         return prompt
     }

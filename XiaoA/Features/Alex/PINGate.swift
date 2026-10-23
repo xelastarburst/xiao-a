@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Long-press 小A on the home screen to get here. Keeps settings away from Mom.
+/// Long-press the mascot on the home screen to get here. Keeps settings away from accidental taps.
 struct PINGate: View {
     var onUnlock: () -> Void
 
@@ -14,9 +14,9 @@ struct PINGate: View {
             Form {
                 if store.config.pin.isEmpty {
                     Section {
-                        Text("No PIN yet. Set one inside Alex mode so Mom can't change settings by accident.")
+                        Text("No PIN yet. Set one inside Settings so nothing gets changed by accident.")
                     }
-                    Button("Open Alex mode", action: unlock)
+                    Button("Open Settings", action: unlock)
                 } else {
                     Section {
                         SecureField("PIN", text: $entry)
@@ -29,7 +29,7 @@ struct PINGate: View {
                     Button("Unlock", action: check)
                 }
             }
-            .navigationTitle("Alex mode")
+            .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

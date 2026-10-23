@@ -48,6 +48,8 @@ struct BigButton: View {
     var border: Color? = nil
     var height: CGFloat = 72
     var fontSize: CGFloat = 26
+    /// German labels can be long: up to this many lines before the text shrinks.
+    var lines: Int = 1
     var action: () -> Void
 
     var body: some View {
@@ -56,8 +58,10 @@ struct BigButton: View {
                 if let systemImage {
                     Image(systemName: systemImage).font(.system(size: fontSize * 0.95, weight: .bold))
                 }
-                Text(title).font(.xa(fontSize, .heavy)).lineLimit(1).minimumScaleFactor(0.6)
+                Text(title).font(.xa(fontSize, .heavy)).lineLimit(lines).minimumScaleFactor(0.6)
+                    .multilineTextAlignment(.center)
             }
+            .padding(.horizontal, 12)
             .foregroundStyle(foreground)
             .frame(maxWidth: .infinity)
             .frame(height: height)
@@ -75,11 +79,12 @@ struct SoftButton: View {
     var foreground: Color = Palette.ink
     var height: CGFloat = 56
     var fontSize: CGFloat = 20
+    var lines: Int = 1
     var action: () -> Void
 
     var body: some View {
         BigButton(title: title, systemImage: systemImage, fill: fill, depth: nil, foreground: foreground,
-                  border: border, height: height, fontSize: fontSize, action: action)
+                  border: border, height: height, fontSize: fontSize, lines: lines, action: action)
     }
 }
 
@@ -107,7 +112,7 @@ struct IconButton: View {
 
 // MARK: - Top bar
 
-/// 返回 on the left, title in the middle, red 紧急 on the right — the same on every screen.
+/// Zurück on the left, title in the middle, red Notfall on the right — the same on every screen.
 struct TopBar: View {
     var title: String
     var showEmergency = true
@@ -124,7 +129,7 @@ struct TopBar: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.left").font(.system(size: 22, weight: .heavy))
-                    Text("返回").font(.xa(22, .heavy))
+                    Text("Zurück").font(.xa(20, .heavy))
                 }
                 .foregroundStyle(Palette.ink)
                 .padding(.leading, 12).padding(.trailing, 18)
@@ -143,7 +148,7 @@ struct TopBar: View {
             if showEmergency {
                 EmergencyPill()
             } else {
-                Color.clear.frame(width: 106, height: 60)
+                Color.clear.frame(width: 120, height: 60)
             }
         }
         .padding(.horizontal, 16)
@@ -157,10 +162,10 @@ struct EmergencyPill: View {
         Button { app.go(.emergency(practice: false)) } label: {
             HStack(spacing: 6) {
                 Image(systemName: "phone.fill").font(.system(size: 20, weight: .bold))
-                Text("紧急").font(.xa(22, .heavy))
+                Text("Notfall").font(.xa(20, .heavy))
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 14)
             .frame(height: 60)
             .background(Capsule().fill(Palette.red))
         }
@@ -213,10 +218,10 @@ struct WarningNote: View {
 
 // MARK: - Hold to talk
 
-/// WeChat-style "按住 说话": press to start, release to stop.
+/// Press and hold to talk: press to start, release to stop.
 struct HoldToTalkButton: View {
-    var title: String = "按住 说话"
-    var activeTitle: String = "松开 发送"
+    var title: String = "Halten und sprechen"
+    var activeTitle: String = "Loslassen zum Senden"
     var isActive: Bool
     var fill: Color = Palette.persimmon
     var depth: Color = Palette.persimmonDeep
@@ -259,7 +264,7 @@ struct HoldToTalkButton: View {
 
 // MARK: - Two-way toggle
 
-/// Two big choices side by side. Replaces the system segmented control, whose text is too small for Mom.
+/// Two big choices side by side. Replaces the system segmented control, whose text is too small for her.
 struct BigToggle: View {
     var left: String
     var right: String
@@ -309,7 +314,7 @@ struct ErrorCard: View {
             Text(title).font(.xa(22, .heavy)).foregroundStyle(Palette.ink)
             Text(detail).font(.xa(19, .medium)).foregroundStyle(Palette.ink2)
             if let retry {
-                SoftButton(title: "再试一次", systemImage: "arrow.clockwise", action: retry)
+                SoftButton(title: "Nochmal versuchen", systemImage: "arrow.clockwise", action: retry)
             }
         }
         .card()

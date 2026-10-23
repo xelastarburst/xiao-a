@@ -15,7 +15,7 @@ enum AudioCoordinator {
             // talking and listening is instant and no reading gets cut off or silenced.
             try? session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers])
         } else {
-            // .playback ignores the silent switch, so Mom always hears 小A.
+            // .playback ignores the silent switch, so she always hears Helferlein.
             try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
         }
         try? session.setActive(true)
@@ -41,7 +41,7 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     typealias Part = (text: String, language: String, rate: Float)
 
     @Published private(set) var isSpeaking = false
-    /// Lets the interpreter mute its microphone while 小A is talking.
+    /// Lets the interpreter mute its microphone while the phone is talking.
     var onSpeakingChange: ((Bool) -> Void)?
 
     private let makeEngine: () -> SpeechEngine
@@ -83,6 +83,7 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     }
 
     func speakChinese(_ text: String) { speak(text, language: "zh-CN") }
+    func speakGerman(_ text: String) { speak(text, language: "de-DE") }
     func speakEnglish(_ text: String, slow: Bool = false) {
         speak(text, language: "en-US", rate: slow ? Self.slowRate : Self.normalRate)
     }
