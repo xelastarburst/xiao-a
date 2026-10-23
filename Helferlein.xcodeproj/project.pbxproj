@@ -186,7 +186,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 7A1A0000000000000000000B /* Build configuration list for PBXProject "XiaoA" */;
+			buildConfigurationList = 7A1A0000000000000000000B /* Build configuration list for PBXProject "Helferlein" */;
 			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -527,7 +527,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		7A1A0000000000000000000B /* Build configuration list for PBXProject "XiaoA" */ = {
+		7A1A0000000000000000000B /* Build configuration list for PBXProject "Helferlein" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				7A1A0000000000000000000C /* Debug */,
