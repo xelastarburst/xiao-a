@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import Testing
 @testable import XiaoA
 
@@ -69,5 +70,31 @@ struct LiveServiceTests {
         #expect(!chunks.isEmpty)
         #expect(chunks.allSatisfy { $0.count % 2 == 0 })
         #expect(chunks.dropLast().allSatisfy { $0.count == OpenAISpeech.chunkBytes })
+    }
+
+    @Test("Fragen answers about a full-size camera photo (photo + question → Claude → German)")
+    func askAboutPhoto() async throws {
+        let sign = try #require(Demo.signImage, "sample photo missing")
+        let photo = cameraSized(sign)
+        let model = AskModel()
+        model.startOver(with: photo)
+        let started = Date()
+        model.ask("Was bedeutet das?", config: AppConfig())
+        let finished = await waitUntil(90) { !model.streaming }
+        let answer = model.latestAnswer?.text ?? ""
+        print("[XA] live Fragen: \(String(format: "%.1f", Date().timeIntervalSince(started))) s, error: \(model.error ?? "none"), answer: \(answer.prefix(160))")
+        #expect(finished, "still no answer after 90 s")
+        #expect(model.error == nil, "error: \(model.error ?? "")")
+        #expect(answer.contains("Apotheke"), "answer: \(answer)")
+    }
+}
+
+/// The sample sign drawn at the size of an iPhone camera photo (12 MP), like a real photo.
+private func cameraSized(_ image: UIImage) -> UIImage {
+    let size = CGSize(width: 3024, height: 4032)
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1
+    return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+        image.draw(in: CGRect(origin: .zero, size: size))
     }
 }
